@@ -1,0 +1,9 @@
+[submodule "splitflap gateway/SplitFlapGateway"]
+	path = splitflap gateway/SplitFlapGateway
+	url = https://github.com/avandeputte/SplitFlapGateway.git
+[submodule "splitflap gateway/SplitFlapGatewayCompanion"]
+	path = splitflap gateway/SplitFlapGatewayCompanion
+	url = https://github.com/avandeputte/SplitFlapGatewayCompanion.git
+[submodule "splitflap gateway/SplitFlapUniversalFirmware"]
+	path = splitflap gateway/SplitFlapUniversalFirmware
+	url = https://github.com/avandeputte/SplitFlapUniversalFirmware.git

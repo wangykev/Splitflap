@@ -1,0 +1,298 @@
+# =================================================================================================
+#  splitflap_venus.yaml -- Home Assistant package for the split-flap wall + "Hey Venus" voice.
+#  The CONTRACT.md rules, implemented in HA:
+#    * everything DISPLAYED goes through the Companion (the only writer to the flaps)
+#    * the gateway is called directly ONLY for LED states, and only if it advertises "led"
+#    * every answer is sanitized (on-reel characters only, 3 x 15) right before it is sent
+#
+#  Install: put this file in <config>/packages/ and add to configuration.yaml:
+#      homeassistant:
+#        packages: !include_dir_named packages
+#  Then fix every line marked "# EDIT" (GATEWAY_HOST, COMPANION_HOST, the satellite entity) and
+#  restart Home Assistant.
+#
+#  Requires HA 2024.10+ (assist_satellite entities, "triggers:/actions:" syntax).
+#  Verified against: gateway firmware v3.17.0 (mock), Companion v2.10.23.
+# =================================================================================================
+
+# --- Sensors: what the gateway and the Companion say about themselves ----------------------------
+rest:
+  # The gateway's self-description: characters, grid, features (is "led" there?). Read-only.
+  - resource: http://GATEWAY_HOST/api/capabilities            # EDIT: gateway IP or mock host:port
+    scan_interval: 300
+    sensor:
+      - name: SplitFlap gateway capabilities
+        unique_id: splitflap_gateway_capabilities
+        value_template: "{{ value_json.fw }}"
+        json_attributes: [features, charset, grid, led]
+
+  # Is the gateway holding the bus for maintenance (calibration etc.)? Read-only.
+  - resource: http://GATEWAY_HOST/api/status                  # EDIT
+    scan_interval: 30
+    binary_sensor:
+      - name: SplitFlap gateway maintenance
+        unique_id: splitflap_gateway_maintenance
+        value_template: "{{ value_json.maint }}"
+
+  # What the Companion believes is on the wall, and whether its link to the gateway is up.
+  - resource: http://COMPANION_HOST:8000/api/current_state?display=default   # EDIT
+    scan_interval: 15
+    sensor:
+      - name: SplitFlap companion
+        unique_id: splitflap_companion
+        value_template: "{{ value_json.active_app or value_json.active_playlist or 'none' }}"
+        json_attributes: [string, transport, active_app, active_playlist]
+
+template:
+  - binary_sensor:
+      - name: SplitFlap LED supported
+        unique_id: splitflap_led_supported
+        state: "{{ 'led' in (state_attr('sensor.splitflap_gateway_capabilities', 'features') or []) }}"
+
+# The last answer shown, so it can be re-sent if the Companion loses it. Newlines stored as "|"
+# (not a flap character, so it can never collide with real text). Empty = an app is showing.
+input_text:
+  splitflap_last_answer:
+    name: SplitFlap last answer
+    max: 255
+    initial: ""
+
+# --- Calls ----------------------------------------------------------------------------------------
+rest_command:
+  # Gateway, LEDs only (CONTRACT.md "LED perimeter strip").
+  splitflap_led:
+    url: http://GATEWAY_HOST/api/led                          # EDIT
+    method: POST
+    content_type: application/json
+    payload: '{"state": "{{ state }}"}'
+    timeout: 2
+
+  # Companion: run an app ("time", "weather", ...).
+  splitflap_run_app:
+    url: http://COMPANION_HOST:8000/api/apps/run?display=default   # EDIT
+    method: POST
+    content_type: application/json
+    payload: "{{ {'app': app | string} | to_json }}"
+    timeout: 5
+
+  # Companion: show a message. No "seconds": it replaces the running app and stays up.
+  splitflap_message:
+    url: http://COMPANION_HOST:8000/api/message?display=default    # EDIT
+    method: POST
+    content_type: application/json
+    payload: "{{ {'text': text | string} | to_json }}"   # | string: HA would turn "72" into a number
+    timeout: 5
+
+  # Companion: stop the app AND BLANK the wall. Not needed before a message.
+  splitflap_stop:
+    url: http://COMPANION_HOST:8000/api/apps/stop?display=default  # EDIT
+    method: POST
+    timeout: 5
+
+# --- The answer script the LLM calls (expose it to Assist) ----------------------------------------
+script:
+  splitflap_show_answer:
+    alias: Show answer on the split-flap display
+    description: >-
+      Show a short answer on the split-flap display in the room. The display has exactly 3 lines
+      of 15 characters and shows only capital letters, digits, spaces and the punctuation
+      ! @ # $ & ( ) - + = ; " : % ' . , / ? *. Write at most 3 short lines of 15 characters
+      (about 40 characters in total), no emoji, no symbols like degree signs. Use this whenever
+      the user asks to show, display or put something on the board.
+    mode: queued
+    fields:
+      text:
+        name: Text
+        description: The text to show, at most 3 lines of 15 characters.
+        required: true
+        example: "72 F AND SUNNY"
+        selector:
+          text:
+            multiline: true
+    sequence:
+      - variables:
+          # sanitize(): the guarantee behind the character rule (same steps as
+          # venus_client.py's sanitize). Lookalike folding -> uppercase -> transliterate what is
+          # left (cafe, strasse) -> anything still off the reel becomes a space -> word-wrap to 15
+          # -> keep 3 lines, marked "..." when cut, so a long answer is shortened deliberately
+          # instead of being cropped by the Companion (which keeps the MIDDLE lines).
+          clean: >-
+            {%- set cols = 15 -%}{%- set rows = 3 -%}
+            {%- set caps = state_attr('sensor.splitflap_gateway_capabilities', 'charset') or {} -%}
+            {%- set allowed = caps.get('common') or " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$&()-+=;\":%'.,/?*" -%}
+            {%- set fold = {'‘':"'", '’':"'", '‚':"'", '‛':"'", '′':"'", '`':"'", '´':"'",
+                            '“':'"', '”':'"', '„':'"', '″':'"', '«':'"', '»':'"',
+                            '‐':'-', '‑':'-', '‒':'-', '–':'-', '—':'-', '―':'-', '−':'-',
+                            '…':'...', '×':'*'} -%}
+            {%- set ns = namespace(s='', lines=[], cur='', chunks=[]) -%}
+            {%- for ch in (text | string) -%}
+              {%- if ch == '\n' -%}
+                {%- set ns.s = ns.s ~ '\n' -%}
+              {%- else -%}
+                {%- set u = (fold.get(ch, ch)) | upper -%}
+                {%- if (u | select('in', allowed) | list | length) == (u | length) -%}
+                  {%- set ns.s = ns.s ~ u -%}
+                {%- else -%}
+                  {#- transliterate LETTERS only (é -> E, ß -> SS); symbols like ° become a space -#}
+                  {%- set t = ((ch | slugify(separator='')) | upper) if ch.isalpha() else '' -%}
+                  {%- if t and (t | select('in', allowed) | list | length) == (t | length) -%}
+                    {%- set ns.s = ns.s ~ t -%}
+                  {%- else -%}
+                    {%- set ns.s = ns.s ~ ' ' -%}
+                  {%- endif -%}
+                {%- endif -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- for para in ns.s.split('\n') -%}
+              {%- set ns.cur = '' -%}
+              {%- for w0 in para.split() -%}
+                {%- set ns.chunks = [] -%}
+                {%- for i in range(0, w0 | length, cols) -%}
+                  {%- set ns.chunks = ns.chunks + [w0[i:i + cols]] -%}
+                {%- endfor -%}
+                {%- for w in ns.chunks -%}
+                  {%- if ns.cur == '' -%}
+                    {%- set ns.cur = w -%}
+                  {%- elif (ns.cur | length) + 1 + (w | length) <= cols -%}
+                    {%- set ns.cur = ns.cur ~ ' ' ~ w -%}
+                  {%- else -%}
+                    {%- set ns.lines = ns.lines + [ns.cur] -%}
+                    {%- set ns.cur = w -%}
+                  {%- endif -%}
+                {%- endfor -%}
+              {%- endfor -%}
+              {%- if ns.cur != '' -%}
+                {%- set ns.lines = ns.lines + [ns.cur] -%}
+              {%- endif -%}
+            {%- endfor -%}
+            {%- if ns.lines | length > rows -%}
+              {%- set last = ns.lines[rows - 1] -%}
+              {%- if (last | length) + 3 > cols -%}
+                {%- set cut = last[:cols - 3] | trim -%}
+                {%- set sp = cut.rfind(' ') -%}
+                {%- set last = cut[:sp] if sp > 0 else cut -%}
+              {%- endif -%}
+              {%- set ns.lines = ns.lines[:rows - 1] + [(last.rstrip(' ,;:-.') ~ '...')[:cols]] -%}
+            {%- endif -%}
+            {{- ns.lines | join('\n') -}}
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.splitflap_last_answer
+        data:
+          value: "{{ (clean | string) | replace('\n', '|') }}"
+      - action: rest_command.splitflap_message
+        data:
+          text: "{{ clean | string }}"
+
+# --- Automations ----------------------------------------------------------------------------------
+automation:
+  # LEDs follow the voice satellite. The wake word itself ("Hey Venus", or a stock wake word while
+  # developing) is configured in the satellite / Assist pipeline, not here.
+  - id: splitflap_led_follow_satellite
+    alias: SplitFlap LEDs follow the voice satellite
+    mode: queued
+    max: 10
+    triggers:
+      - trigger: state
+        entity_id: assist_satellite.venus_pi                  # EDIT: your satellite entity
+    conditions:
+      - condition: state
+        entity_id: binary_sensor.splitflap_led_supported
+        state: "on"
+    actions:
+      - action: rest_command.splitflap_led
+        continue_on_error: true
+        data:
+          state: >-
+            {{ {'listening': 'listening', 'processing': 'thinking',
+                'responding': 'speaking'}.get(trigger.to_state.state, 'idle') }}
+
+  # "Show the time" -> the Companion's Time app (it keeps itself updated).
+  - id: splitflap_show_time
+    alias: SplitFlap show the time
+    triggers:
+      - trigger: conversation
+        command:
+          - "show [the] time [on the (board|display|wall)]"
+          - "show [the] clock [on the (board|display|wall)]"
+          - "put [the] time on the (board|display|wall)"
+    actions:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.splitflap_last_answer
+        data:
+          value: ""
+      - action: rest_command.splitflap_run_app
+        data:
+          app: time
+      - set_conversation_response: "Showing the time."
+
+  # "Show the weather" -> the Companion's Weather app (keyless Open-Meteo by default; set the
+  # location in the Companion: global setting zip_code / location).
+  - id: splitflap_show_weather
+    alias: SplitFlap show the weather
+    triggers:
+      - trigger: conversation
+        command:
+          - "show [the] weather [on the (board|display|wall)]"
+          - "put [the] weather on the (board|display|wall)"
+    actions:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.splitflap_last_answer
+        data:
+          value: ""
+      - action: rest_command.splitflap_run_app
+        data:
+          app: weather
+      - set_conversation_response: "Showing the weather."
+
+  # "Clear the board" -> stop the app and blank the wall.
+  - id: splitflap_clear
+    alias: SplitFlap clear the board
+    triggers:
+      - trigger: conversation
+        command:
+          - "clear the (board|display|wall)"
+          - "turn off the (board|display|wall)"
+    actions:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.splitflap_last_answer
+        data:
+          value: ""
+      - action: rest_command.splitflap_stop
+      - set_conversation_response: "Cleared."
+
+  # Keep the last answer on the wall. Two things lose a message: a Companion restart (it resumes
+  # apps, not messages, and then believes the wall is blank) and a send the gateway refused during
+  # maintenance (the Companion does not retry; its link stays "disconnected" until its next
+  # successful send). Re-send when either is detected and the gateway is accepting content.
+  - id: splitflap_resend_last_answer
+    alias: SplitFlap re-send the last answer if it was lost
+    mode: single
+    triggers:
+      - trigger: time_pattern
+        seconds: "/30"
+      - trigger: state
+        entity_id: sensor.splitflap_companion
+        not_to: [unavailable, unknown]
+    conditions:
+      - condition: template
+        value_template: >-
+          {%- set last = states('input_text.splitflap_last_answer') -%}
+          {%- set comp = 'sensor.splitflap_companion' -%}
+          {%- set tr = state_attr(comp, 'transport') or {} -%}
+          {{ last not in ['', 'unknown', 'unavailable']
+             and states(comp) == 'none'
+             and ((state_attr(comp, 'string') or '') | trim == '' or not tr.get('connected', true)) }}
+      - condition: state
+        entity_id: binary_sensor.splitflap_gateway_maintenance
+        state: "off"
+    actions:
+      - action: homeassistant.update_entity
+        target:
+          entity_id: sensor.splitflap_companion
+      - action: rest_command.splitflap_message
+        data:
+          text: "{{ states('input_text.splitflap_last_answer') | replace('|', '\n') }}"

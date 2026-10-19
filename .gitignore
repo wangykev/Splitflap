@@ -1,0 +1,22 @@
+# Not part of this repo
+adamGsplitflap/
+
+# KiCad
+*.lck
+*-bak
+*.kicad_sch-bak
+fp-info-cache
+.history/
+*-backups/
+
+# Altium
+History/
+__Previews/
+*.LOG
+
+# Python / misc
+__pycache__/
+*.pyc
+.env
+.DS_Store
+Thumbs.db
