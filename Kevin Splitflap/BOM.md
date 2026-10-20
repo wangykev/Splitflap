@@ -4,9 +4,6 @@ A 3 × 15 (45-module) split-flap wall: Adam G Makes modules on Kevin's ATtiny161
 ESP32-S3 RS-485 gateway, a WS2815 LED perimeter strip, and a Raspberry Pi running Home Assistant
 with a "Hey Venus" voice satellite. See `../gateway/CLAUDE.md` for the full project plan.
 
-- Original module design: [Adam G Makes](https://www.youtube.com/@AdamGMakes) ([build video](https://www.youtube.com/watch?v=-C8_AtxEEQc))
-- Gateway / module firmware / Companion: [avandeputte](https://github.com/avandeputte) (submodules in `../gateway/`)
-
 **Prices checked 2026-10-19, in USD, before sales tax and shipping unless a row says otherwise.**
 The *Price* column marks where each number came from:
 - **LIVE**: read from the product page.
@@ -26,12 +23,12 @@ Pack prices are rounded up to whole packs.
 | [5. Gateway & RS-485 bus](#5-gateway--rs-485-bus) | $18.99 |
 | [6. Power](#6-power) | $60.64 |
 | [7. LED perimeter strip](#7-led-perimeter-strip) | $38.37 |
-| [9. Case (plywood back, laser-cut acrylic)](#9-case) | $58.61 |
-| **Wall total (Kevin's hardware side)** | **$696.27** |
+| [9. Case (plywood back, laser-cut acrylic)](#9-case) | ≈ $70.12 |
+| **Wall total (Kevin's hardware side)** | **≈ $707.78** |
 | [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $218.53 |
-| **Grand total** | **≈ $915** |
+| **Grand total** | **≈ $926** |
 
-Realistic all-in budget: **≈ $960–985**. The proposal asks for $950; the savings checks (Pi, IEC cord/fuses) cover the gap.
+Realistic all-in budget: **≈ $970–995**. The proposal asks for $950; the savings checks (Pi, IEC cord/fuses) cover the gap.
 - The total above already includes shipping and tariffs for JLCPCB and Elecrow.
 - Add roughly $45–70 for shipping from the other stores: Vetco, Adafruit, Seeed, Bravo Electro, Waveshare and Laser by the Creek. Amazon is usually free over $35 or with Prime; Home Depot is store pickup.
 - The JLCPCB estimates can still move ±$20.
@@ -194,7 +191,7 @@ ends. Details are in `../gateway/CLAUDE.md`, Phase 2.
 | Perfboard (for the level shifter) | [Adafruit #571](https://www.adafruit.com/product/571) ($12.50 / 3) | 1 | – | $0 | **Already have** |
 | **Subtotal** | | | | **$38.37** | |
 
-Strip length: the strip runs around the inside of the case's side panels (§9). The case is about 880 × 270 mm, so that's about 2.3 m. 3 m is bought to leave margin for the corners and mounting.
+Strip length: the strip runs around the inside of the case's side panels (§9). The case is about 880 × 280 mm, so that's about 2.3 m. 3 m is bought to leave margin for the corners and mounting.
 
 ## 8. Raspberry Pi + voice satellite
 
@@ -223,26 +220,27 @@ Pi prices are high in 2026 because of the RAM shortage.
 
 ## 9. Case
 
-The modules (606 × 240 mm) sit in the middle, with a bay on each side for the electronics. That makes the case about **880 × 270 × 95 mm** outside.
+The modules (606 × 240 mm) sit in the middle, with a bay on each side for the electronics. That makes the case about **880 × 280 × 95 mm** outside. The height is 240 mm of modules, plus about 15 mm above and below for the LED strip and its standoff, plus the two 3 mm panels.
 
 - **Left bay (mains):** the PSU, mounted flat on the plywood (215 mm tall), plus the C14 inlet. All mains wiring stays in this bay.
 - **Right bay (low voltage):** the gateway, on the top rail extended into the bay, plus the level-shifter board and buck converter.
 
 How it goes together:
-- **Back:** 1/4" plywood, cut to 880 × 270 mm. It carries the 3 DIN rails, the PSU and the bay electronics. It also has vent slots behind the PSU and the wall hangers.
+- **Back:** 1/4" plywood, cut to 880 × 280 mm. It carries the 3 DIN rails, the PSU and the bay electronics. It also has vent slots behind the PSU and the wall hangers.
 - **Front:** 1/8" black acrylic, laser-cut in one piece. It has one window per module, sized from the module CAD, and a vent grille over the PSU's fan. It's held on with M3 countersunk screws into printed brackets, so it comes off for service.
 - **Sides:** 1/8" black LED acrylic, about 95 mm deep. It looks matte black when the LEDs are off and passes about 29% of their light, in the LEDs' own colour. The WS2815 strip sits on printed clips about 10 mm inside the panels so the LEDs blend instead of showing as dots. The C14 inlet goes through the left end panel.
 - **Joints:** printed corner brackets plus M3 screws and nuts left over from §3, which has about 120 spare M3×8 screws and 60 spare nuts.
-- **Laser bed:** the front and back each need a bed at least about 900 × 280 mm (36 × 12" class).
+- **Laser bed:** the front and back each need a bed of at least about 900 × 290 mm. The 18 × 36" front sheet fits whole on a 36 × 24" bed; on a smaller bed, trim it to about 290 mm tall on a table saw first.
 
 | Item | Link | Qty | Unit | Ext | Price |
 |---|---|---|---|---|---|
 | 1/4" × 2 × 4 ft sanded plywood (back). If it's laser-cut, birch cuts cleaner than pine | [Home Depot 203438872](https://homedepot.com/p/1-4-in-x-2-ft-x-4-ft-Pine-Sanded-Plywood-1502100/203438872) | 1 | $11.22 | $11.22 | SNIP |
-| 1/8" black acrylic, 12 × 36" (front: 880 × 270 fits in 914 × 305) | [Home Depot Falken Design 308669432](https://www.homedepot.com/p/Falken-Design-12-in-x-36-in-x-1-8-in-Thick-Acrylic-Black-Opaque-Sheet-Falken-Design-ACRYLIC-BK-1-8-1236/308669432) | 1 | $17.49 | $17.49 | SNIP |
+| 1/8" black acrylic, 18 × 36" (front: 880 × 280 in 914 × 457, which leaves room for a border or a taller case). The price is an estimate scaled by area between the 12 × 36" ($17.49) and 24 × 36" ($40.92) sheets; check the listing | [Amazon Falken Design B07NR99K5Z](https://www.amazon.com/dp/B07NR99K5Z) | 1 | ≈ $29.00 | ≈ $29.00 | EST |
+| *Alternative:* 24 × 36" of the same sheet, if 18 × 36" is out of stock | [Home Depot 308669314](https://www.homedepot.com/p/Falken-Design-24-in-x-36-in-x-1-8-in-Thick-Acrylic-Black-Opaque-Sheet-Falken-Design-ACRYLIC-BK-1-8-2436/308669314) | (1) | $40.92 | (+$11.92) | SNIP |
 | 1/8" black LED cast acrylic, 12 × 18" (sides). Two sheets give six 95 mm strips: the top and bottom are two strips each, joined at the centre, plus the two end panels | [Laser by the Creek](https://laseredbythecreek.com/products/1-8-black-led-cast-acrylic-sheets-matte-gloss-finish) | 2 | $14.95 | $29.90 | LIVE |
 | *Alternative:* the same material in 24 × 36", for seamless top and bottom strips | same listing | (1) | $59.95 | (+$30.05) | LIVE |
 | M3 screws and nuts for the brackets and front panel | spares from §3 | ~24 | – | $0 | **Already have** |
-| **Subtotal** | | | | **$58.61** | |
+| **Subtotal** | | | | **≈ $70.12** | |
 
 ## 10. 3D-printed parts (not priced)
 
