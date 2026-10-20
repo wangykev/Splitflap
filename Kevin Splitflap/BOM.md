@@ -21,17 +21,21 @@ Pack prices are rounded up to whole packs.
 |---|---|
 | [1. Driver PCBs, assembled by JLCPCB (50 boards)](#1-driver-pcb-jlcpcb-assembled) | $264.00 |
 | [2. Bus boards (10 bare PCBs + headers)](#2-bus-board) | $18.00 |
-| [3. Module hardware (45 modules)](#3-module-hardware-45-modules) | $286.65 |
+| [3. Module hardware (45 modules)](#3-module-hardware-45-modules) | $237.66 |
 | [4. Programming (UPDI flasher)](#4-programming-updi-flasher) | incl. above |
-| [5. Gateway & RS-485 bus](#5-gateway--rs-485-bus) | $36.01 |
-| [6. Power](#6-power) | $137.22 |
-| [7. LED perimeter strip](#7-led-perimeter-strip) | $63.52 |
-| **Wall total (Kevin's hardware side)** | **$805.40** |
-| [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $214.84 |
-| **Grand total** | **≈ $1,020** |
+| [5. Gateway & RS-485 bus](#5-gateway--rs-485-bus) | $18.99 |
+| [6. Power](#6-power) | $60.64 |
+| [7. LED perimeter strip](#7-led-perimeter-strip) | $38.37 |
+| **Wall total (Kevin's hardware side)** | **$637.66** |
+| [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $218.53 |
+| **Grand total** | **≈ $856** |
 
-Realistic all-in budget: **$1,050–1,100**. That leaves room for shipping from the 5–6 stores
-involved and for the JLCPCB estimates (bare board price and tariff) landing ±$20.
+Realistic all-in budget: **≈ $890–920**.
+- The total above already includes shipping and tariffs for JLCPCB and Elecrow.
+- Add roughly $35–60 for shipping from the other stores: Vetco, Adafruit, Seeed, Bravo Electro and Waveshare. Amazon is usually free over $35 or with Prime.
+- The JLCPCB estimates can still move ±$20.
+
+Owned parts are listed with **Already have** and count as $0.
 
 Optional add-ons, not in the total:
 - Ferrule crimp kit: +$39.95
@@ -114,12 +118,14 @@ conductor rail for +12 V, GND, A and B. You need 3 per row, so 9 total; order 10
 | M3 × 40 mm flat head | 4 | 180 | [KADRICK M3×40 countersunk, 170 pcs](https://www.amazon.com/dp/B0H1CTDXTB) | 170 | 1 | $9.99 | $9.99 | LIVE |
 | M3 × 40 mm (top-up, 10 short) | – | 10 | [iexcell M3×40, 50 pcs](https://www.amazon.com/dp/B0GRB2DW2T). Confirm it's flat head, or buy a 2nd KADRICK pack (+$4) | 50 | 1 | $5.98 | $5.98 | LIVE |
 | A3144 Hall sensor | 1 | 45 | [A3144, 30 pcs](https://www.amazon.com/dp/B0DQ4GV916) | 30 | 2 | $6.88 | $13.76 | LIVE |
-| 28BYJ-48 stepper, **12 V** | 1 | 45 | [28BYJ-48 + ULN2003 board, 10 sets](https://www.amazon.com/dp/B0D4WS7MR6). **Select the 12 V option**; the ULN2003 boards go unused | 10 | 5 | $24.00 | $120.00 | LIVE |
+| 28BYJ-48 stepper, **12 V** | 1 | 45 (+5 spare) | [Elecrow 28BYJ-48 12 V](https://www.elecrow.com/28byj48-high-quality-stepper-motor-12v-p-784.html). Ships from China; check the cart for real shipping and confirm the 5-pin JST-XH plug | 1 | 50 | $1.00 | $50.00 | LIVE |
+| ↳ Elecrow shipping (~2.2 kg) + possible tariff | – | – | – | – | – | – | ≈ $25.00 | EST |
+| *Alternative:* 28BYJ-48 12 V + ULN2003, 10 sets | – | – | [Amazon](https://www.amazon.com/dp/B0D4WS7MR6), select the 12 V option | 10 | (5) | $24.00 | ($120.00) | LIVE |
 | Pogo pin, 9 mm (2.0 mm head, 5.0 mm tube, 1.0 mm tail) | 4 | 184 (180 + 4 for the gateway) | [Yibuy 2 mm gold pogo pins, 100 pcs](https://www.amazon.com/dp/B07FPKKK9W). This is the designer's listing | 100 | 2 | $12.99 | $25.98 | LIVE |
 | 3 × 1 mm N52 magnet | 1 | 45 | [N52 D3×1 mm, 1000 pcs](https://www.amazon.com/dp/B0F4CD3GC1). Cheaper packs don't state the grade | 1000 | 1 | $21.59 | $21.59 | LIVE |
 | Hall sensor cable, 3-pin | 1 | 45 | [JST 3-pin pigtails, 60 pairs](https://www.amazon.com/dp/B0F6T5CJ2T). ⚠ This listing is JST-**XH** 2.54 mm, but J4 is JST-**PH** 2.0 mm. Buy a JST-PH 3-pin pigtail pack instead (similar price) | 60 | 1 | $11.99 | $11.99 | LIVE |
 | 35 mm DIN rail, 1 m (cut to ~600 mm per row) | – | 3 | [Slotted steel DIN rail, 1 m](https://www.amazon.com/dp/B019Q9E86W) | 1 | 3 | $7.95 | $23.85 | LIVE |
-| **Subtotal** (incl. §4) | | | | | | | **$286.65** | |
+| **Subtotal** (incl. §4) | | | | | | | **$237.66** | |
 
 ## 4. Programming (UPDI flasher)
 
@@ -130,7 +136,7 @@ adapter, with the band at TXD.
 |---|---|---|---|---|
 | CH340 USB-TTL adapter | [HiLetgo CH340, 5 pcs](https://www.amazon.com/dp/B00LZV1G6K) | 1 pack | $9.79 | LIVE |
 | 1N5817 Schottky diode | [BOJACK 1N5817, 125 pcs](https://www.amazon.com/dp/B07Q5H1SLY) | 1 pack | $5.99 | LIVE |
-| F-M jumper wires | [40 pcs 20 cm Dupont F-M](https://www.amazon.com/dp/B0BRTHR2RL) | 1 pack | $3.99 | LIVE |
+| F-M jumper wires | [40 pcs 20 cm Dupont F-M](https://www.amazon.com/dp/B0BRTHR2RL) ($3.99) | 1 pack | $0 | **Already have** |
 
 These are included in the §3 subtotal.
 
@@ -143,10 +149,9 @@ cm of thin wire and superglue.
 | Item | Link | Qty | Unit | Ext | Price |
 |---|---|---|---|---|---|
 | Waveshare ESP32-S3-RS485-CAN | [waveshare.com](https://www.waveshare.com/esp32-s3-rs485-can.htm) (also on [Amazon](https://www.amazon.com/dp/B0FNCWZ3D1)) | 1 | $18.99 | $18.99 | LIVE |
-| Resistor kit, 1/4 W, 500 pcs (includes 330 Ω for the LED strip) | [SparkFun](https://www.sparkfun.com/resistor-kit-1-4w-500-total.html) | 1 | $9.95 | $9.95 | LIVE |
-| 120 Ω 1/4 W, bus termination | [Vetco](https://vetco.net/products/nte-qw112_120_ohm_1-4_watt_resistor) | 2 | $0.29 | $0.58 | LIVE |
-| 10 ft Cat-6 cable. Cut it and use one twisted pair for A/B between rows | [Vetco](https://vetco.net/products/cat-6_ethernet_cable_10_ft) | 1 | $6.49 | $6.49 | LIVE |
-| **Subtotal** | | | | **$36.01** | |
+| Resistors: 330 Ω (LED data line) and 120 Ω (bus termination). Make sure you have both values | [SparkFun kit](https://www.sparkfun.com/resistor-kit-1-4w-500-total.html) ($9.95) / [Vetco 120 Ω](https://vetco.net/products/nte-qw112_120_ohm_1-4_watt_resistor) ($0.29) | 1 + 2 | – | $0 | **Already have** |
+| Twisted pair for RS-485 A/B between rows, ~2–3 m (self-made) | [Vetco Cat-6](https://vetco.net/products/cat-6_ethernet_cable_10_ft) ($6.49) | 1 | – | $0 | **Already have** |
+| **Subtotal** | | | | **$18.99** | |
 
 ## 6. Power
 
@@ -160,14 +165,16 @@ That comes to about 16 A peak. The 29 A PSU leaves headroom.
 | Item | Link | Qty | Unit | Ext | Price |
 |---|---|---|---|---|---|
 | Mean Well LRS-350-12 (12 V, 29 A) | [Bravo Electro](https://www.bravoelectro.com/lrs-350-12.html) | 1 | $33.30 | $33.30 | LIVE |
-| C14 inlet with fuse holder and switch, 10 A (no separate switch needed) | [Amazon B00F4MFMXE](https://www.amazon.com/dp/B00F4MFMXE) | 1 | ≈ $8 | $8.00 | EST |
-| 3.15 A 5×20 mm slow-blow fuse, 5 pcs | [Vetco](https://vetco.net/products/3-15amp5x20s_3-15_amp_5x20mm_slow_blow_fuse_5pk) | 1 | $7.50 | $7.50 | LIVE |
+| C14 inlet with fuse holder and **black** rocker switch, 10 A 250 V, 3-pack with 18 AWG leads (no separate switch needed). If it ships with a 10 A fuse, replace it with the 4 A slow-blow below | [Amazon B0GYWP9JJ2](https://www.amazon.com/dp/B0GYWP9JJ2) | 1 pack | $13.89 | $13.89 | User-checked |
+| 5×20 mm slow-blow fuse, 5 pcs (goes in the C14 inlet's fuse drawer). **Pick the 4 A pack**, same price; 3.15 A is tight | [Vetco](https://vetco.net/products/3-15amp5x20s_3-15_amp_5x20mm_slow_blow_fuse_5pk) | 1 | $7.50 | $7.50 | LIVE |
 | IEC C13 power cord, 6 ft, 18/3 | [Vetco](https://vetco.net/products/6-iec-power-cord-18-3-awg-black) | 1 | $5.95 | $5.95 | LIVE |
-| 18 AWG red/black zip cord (sold per ft; 25 ft may be enough, which halves this) | [Vetco](https://vetco.net/products/jsc-2440_18_awg_2_conductor_red-black_speaker_wire_-_power_wire_-usa_made) | 50 ft | $1.05/ft | $52.50 | LIVE |
-| WAGO 221 combo kit, 40 pcs | [Home Depot](https://www.homedepot.com/p/WAGO-221-Lever-Nut-Combo-Kit-40-pack-887-0408/336511597) | 1 | $29.97 | $29.97 | SNIP |
+| 18 AWG red/black wire for 12 V runs. About 15 ft: PSU → 3 bus rows + both strip ends | [Vetco](https://vetco.net/products/jsc-2440_18_awg_2_conductor_red-black_speaker_wire_-_power_wire_-usa_made) ($1.05/ft) | ~15 ft | – | $0 | **Already have** |
+| Mains wire, C14 inlet → PSU (L, N, earth). **Must be mains-rated 3-wire:** cut ~30 cm from an old IEC or extension cord. Earth goes to the PSU's FG terminal | old cord | ~30 cm | – | $0 | **Already have** |
+| WAGO 221 lever connectors | [Home Depot](https://www.homedepot.com/p/WAGO-221-Lever-Nut-Combo-Kit-40-pack-887-0408/336511597) ($29.97 / 40) | a few | – | $0 | **Already have** |
+| Heat-shrink tubing | – | – | – | $0 | **Already have** |
 | *Optional:* ferrule crimp kit with 1800 ferrules | [Vetco](https://vetco.net/products/vupn1576_ferrule_wire_crimping_tool_kit_with_1800pcs) | (1) | $39.95 | – | LIVE |
 | *Alternative:* separate SPST rocker switch | [Vetco](https://vetco.net/products/ces-66-2200_spst_snap-in_illuminated_rocker_switch_on-off_20a_120vac_amber) | (1) | $2.99 | – | LIVE |
-| **Subtotal** | | | | **$137.22** | |
+| **Subtotal** | | | | **$60.64** | |
 
 ## 7. LED perimeter strip
 
@@ -180,26 +187,36 @@ ends. Details are in `../gateway/CLAUDE.md`, Phase 2.
 | WS2815 12 V 144 LED/m, IP20, 3 m option | [SuperLightingLED](https://www.superlightingled.com/dc12v-ws2815-upgraded-ws2812b-1m-144-leds-individually-addressable-digital-led-strip-lights-dual-signal-wires-waterproof-dream-color-programmable-5050-rgb-flexible-led-ribbon-light-p-2134.html) | 1 | $36.98 | $36.98 | LIVE |
 | *Alternative:* BTF-LIGHTING WS2815 144/m, 1 m (buy 3) | [Amazon B07LG6J39V](https://www.amazon.com/dp/B07LG6J39V) | (3) | ≈ $19.94 | (≈ $59.82) | SNIP |
 | SN74AHCT125N level shifter, DIP-14 | [LCSC C354152](https://www.lcsc.com/product-detail/C354152.html) (ships with the JLC order) | 2 | $0.693 | $1.39 | LIVE |
-| Adjustable buck module, 2 A (set to 5.0 V for the 74AHCT125) | [Vetco D93](https://vetco.net/products/vupn7407_dc-dc_adjustable_step-down_voltage_regulator_module-_1-5-35vdc_output__2a_d93) | 1 | $6.95 | $6.95 | LIVE |
-| 1000 µF 25 V electrolytic | [Vetco](https://vetco.net/products/1000uf25vdc_1000uf_25_volt_electrolytic_capacitor) | 2 | $2.85 | $5.70 | LIVE |
-| Perma-Proto half-size, 3 pcs | [Adafruit #571](https://www.adafruit.com/product/571) | 1 | $12.50 | $12.50 | LIVE |
 | 330 Ω resistor | from the §5 resistor kit | – | – | $0 | – |
-| **Subtotal** | | | | **$63.52** | |
+| 12 V → 5 V buck converter (for the 74AHCT125). Set and check it at 5.0 V before connecting | [Vetco D93](https://vetco.net/products/vupn7407_dc-dc_adjustable_step-down_voltage_regulator_module-_1-5-35vdc_output__2a_d93) ($6.95) | 1 | – | $0 | **Already have** |
+| 1000 µF capacitor, ≥16 V (across the strip's power input) | [Vetco](https://vetco.net/products/1000uf25vdc_1000uf_25_volt_electrolytic_capacitor) ($2.85 ea) | 1–2 | – | $0 | **Already have** |
+| Perfboard (for the level shifter) | [Adafruit #571](https://www.adafruit.com/product/571) ($12.50 / 3) | 1 | – | $0 | **Already have** |
+| **Subtotal** | | | | **$38.37** | |
+
+Strip length: the wall's perimeter is about 1.7 m (≈ 606 × 240 mm, from the CAD). 3 m is bought to leave margin for mounting.
 
 ## 8. Raspberry Pi + voice satellite
 
-This is the partner's side: Home Assistant, the Assist satellite, the LLM and the Companion app.
+This is Jace's side: Home Assistant, the Assist satellite, the LLM and the Companion app.
 The USB-RS485 dongle in the original Adam G BOM is **not needed**, because the gateway replaces it.
 
 | Item | Link | Qty | Unit | Ext | Price |
 |---|---|---|---|---|---|
 | Raspberry Pi 5 4GB ([8GB is $200](https://www.adafruit.com/product/5813)) | [Adafruit #5812](https://www.adafruit.com/product/5812) | 1 | $130.00 | $130.00 | LIVE |
 | Official 27 W USB-C PSU | [Adafruit #5814](https://www.adafruit.com/product/5814) | 1 | $14.04 | $14.04 | LIVE |
-| Official Pi 5 case + fan | [Adafruit #5816](https://www.adafruit.com/product/5816) | 1 | $12.00 | $12.00 | LIVE |
-| SanDisk High Endurance microSD, 32 GB | [PiShop.us](https://www.pishop.us/product/sandisk-high-endurance-microsdhc-card-32gb-blank/) | 1 | $29.95 | $29.95 | LIVE |
-| Seeed ReSpeaker Lite (USB 2-mic array) | [Seeed](https://www.seeedstudio.com/ReSpeaker-Lite-p-5928.html) | 1 | $24.90 | $24.90 | LIVE |
-| Speaker, 3 W 4 Ω, JST-PH 2.0 (currently out of stock; [Seeed 5 W alternative](https://openelab.com/products/seeed-studio-mono-enclosed-speaker), $4.18) | [Adafruit #3351](https://www.adafruit.com/product/3351) | 1 | $3.95 | $3.95 | LIVE |
-| **Subtotal** | | | | **$214.84** | |
+| Official Pi 5 Active Cooler. The Pi 5 throttles under sustained HA + voice load without one | [Adafruit #5815](https://www.adafruit.com/product/5815) | 1 | $13.50 | $13.50 | LIVE |
+| Seeed ReSpeaker XVF3800 USB 4-Mic Array: 360° far-field pickup rated to 5 m, with beamforming, noise suppression and echo cancellation. Has a 3.5 mm out and a 5 W JST speaker amp. Buy the USB version, not the XIAO version | [Seeed](https://www.seeedstudio.com/ReSpeaker-XVF3800-USB-Mic-Array-p-6488.html) | 1 | $60.99 | $60.99 | LIVE |
+| Pi 5 case. Leave an opening above the Active Cooler's fan | [Adafruit #5816](https://www.adafruit.com/product/5816) ($12.00) | 1 | – | $0 | **3D-printing own** |
+| microSD, 32 GB or more, A1/A2, ideally an endurance card (HA writes constantly) | [PiShop.us SanDisk High Endurance](https://www.pishop.us/product/sandisk-high-endurance-microsdhc-card-32gb-blank/) ($29.95) | 1 | – | $0 | **Already have** |
+| Speaker, 8 Ω (later, for spoken replies; see note) | [Adafruit #3351](https://www.adafruit.com/product/3351) ($3.95) | 1 | – | $0 | **Already have** |
+| **Subtotal** | | | | **$218.53** | |
+
+- **Speaker:** not needed now; the wall gives feedback through its LEDs. If spoken replies are added later:
+  - Put a spare 8 Ω speaker next to the ReSpeaker on the floor, below the display.
+  - Wire it to the ReSpeaker's JST speaker port, which has an onboard 5 W amp.
+  - The ReSpeaker's 3.5 mm jack can feed a JBL. The Pi 5 has no 3.5 mm jack. Test whether plugging into the jack mutes the JST speaker.
+  - Nothing audio-related goes in the display.
+  - Because the ReSpeaker plays the audio, its echo cancellation works.
 
 Pi prices are high in 2026 because of the RAM shortage.
 
