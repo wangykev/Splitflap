@@ -9,7 +9,7 @@ built. Update the **Status** and **Roadmap** sections as work lands.
 | Side | Owner | Scope |
 |---|---|---|
 | Hardware + gateway | Kevin | Modules, RS-485 bus, the ESP32 gateway firmware, the LED strip and its firmware support |
-| Software | Partner | Raspberry Pi: Home Assistant, Assist voice satellite, LLM, the Companion app |
+| Software | Jace | Raspberry Pi: Home Assistant, Assist voice satellite, LLM, the Companion app |
 
 The boundary between the two is **`mock-gateway/CONTRACT.md`**. If a change affects that
 interface, update the contract first and re-run its §10 checks.
@@ -74,7 +74,7 @@ voice satellite (Pi) → HA Assist → LLM ──calls──► script.splitflap
 - [ ] Build the modules, flash `SplitFlapUniversalFirmware`, then provision IDs 0–44 (id = row × 15 + col)
       and calibrate each one from the gateway dashboard.
 - [ ] Smoke test: `curl -X POST http://<gw>/api/flap/text -d '{"text":"HELLO","start":0}'`.
-- [ ] Hand the gateway IP to the partner. He points the Companion's `GATEWAY_URL` and the HA
+- [ ] Hand the gateway IP to Jace. Jace points the Companion's `GATEWAY_URL` and the HA
       package's `GATEWAY_HOST` at it. **Nothing else should change.**
 - [ ] Re-run CONTRACT.md §10 against the real wall. Note anything that differs from the mock and
       fix the mock to match.
@@ -109,11 +109,11 @@ Implement exactly CONTRACT.md §4. The mock (`mock_gateway.py`, `Wall.set_led` /
 | `src/config.*` (optional) | Persist the count, corner, direction and brightness so they can be changed from the dashboard without reflashing. |
 | `openapi.yaml` | Document `/api/led`. |
 
-Done when: the partner's unchanged HA package and `venus_client.py` drive the real strip, the
+Done when: Jace's unchanged HA package and `venus_client.py` drive the real strip, the
 `thinking` comet goes the right way from the right corner, expiry works, and display
 behaviour is unchanged.
 
-### Phase 4: software side (partner), tracked here for visibility
+### Phase 4: software side (Jace), tracked here for visibility
 - [ ] Load `ha/splitflap_venus.yaml` on the Pi and pass *Check configuration*. Expose
       `script.splitflap_show_answer` to Assist. Put the 3 × 15 limit in the agent's instructions.
 - [ ] Voice satellite on the Pi. Wake word: a stock one for development, then a custom

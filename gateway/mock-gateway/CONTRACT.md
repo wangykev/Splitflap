@@ -1,7 +1,7 @@
 # Split-Flap Wall: Pi ↔ Wall Contract
 
 This is the agreement between the **hardware side** (Kevin: modules, ESP32 gateway, LED strip) and
-the **software side** (partner: Home Assistant, voice, LLM). Build against the mock gateway in this
+the **software side** (Jace: Home Assistant, voice, LLM). Build against the mock gateway in this
 folder. When the real wall is ready, the only change is an IP address.
 
 **Verified against:** gateway firmware **v3.17.0**, emulated by `mock_gateway.py`, and
