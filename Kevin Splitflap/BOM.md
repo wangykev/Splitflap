@@ -26,13 +26,14 @@ Pack prices are rounded up to whole packs.
 | [5. Gateway & RS-485 bus](#5-gateway--rs-485-bus) | $18.99 |
 | [6. Power](#6-power) | $60.64 |
 | [7. LED perimeter strip](#7-led-perimeter-strip) | $38.37 |
-| **Wall total (Kevin's hardware side)** | **$637.66** |
+| [9. Case (plywood back, laser-cut acrylic)](#9-case) | $58.61 |
+| **Wall total (Kevin's hardware side)** | **$696.27** |
 | [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $218.53 |
-| **Grand total** | **≈ $856** |
+| **Grand total** | **≈ $915** |
 
-Realistic all-in budget: **≈ $890–920**.
+Realistic all-in budget: **≈ $960–985**. The proposal asks for $950; the savings checks (Pi, IEC cord/fuses) cover the gap.
 - The total above already includes shipping and tariffs for JLCPCB and Elecrow.
-- Add roughly $35–60 for shipping from the other stores: Vetco, Adafruit, Seeed, Bravo Electro and Waveshare. Amazon is usually free over $35 or with Prime.
+- Add roughly $45–70 for shipping from the other stores: Vetco, Adafruit, Seeed, Bravo Electro, Waveshare and Laser by the Creek. Amazon is usually free over $35 or with Prime; Home Depot is store pickup.
 - The JLCPCB estimates can still move ±$20.
 
 Owned parts are listed with **Already have** and count as $0.
@@ -42,7 +43,7 @@ Optional add-ons, not in the total:
 - Pi 5 8GB instead of 4GB: +$70
 - J5 header populated: +$14
 
-3D-printed parts are not priced; see [section 9](#9-3d-printed-parts-not-priced).
+3D-printed parts are not priced; see [section 10](#10-3d-printed-parts-not-priced).
 
 ---
 
@@ -193,7 +194,7 @@ ends. Details are in `../gateway/CLAUDE.md`, Phase 2.
 | Perfboard (for the level shifter) | [Adafruit #571](https://www.adafruit.com/product/571) ($12.50 / 3) | 1 | – | $0 | **Already have** |
 | **Subtotal** | | | | **$38.37** | |
 
-Strip length: the wall's perimeter is about 1.7 m (≈ 606 × 240 mm, from the CAD). 3 m is bought to leave margin for mounting.
+Strip length: the strip runs around the inside of the case's side panels (§9). The case is about 880 × 270 mm, so that's about 2.3 m. 3 m is bought to leave margin for the corners and mounting.
 
 ## 8. Raspberry Pi + voice satellite
 
@@ -220,7 +221,30 @@ The USB-RS485 dongle in the original Adam G BOM is **not needed**, because the g
 
 Pi prices are high in 2026 because of the RAM shortage.
 
-## 9. 3D-printed parts (not priced)
+## 9. Case
+
+The modules (606 × 240 mm) sit in the middle, with a bay on each side for the electronics. That makes the case about **880 × 270 × 95 mm** outside.
+
+- **Left bay (mains):** the PSU, mounted flat on the plywood (215 mm tall), plus the C14 inlet. All mains wiring stays in this bay.
+- **Right bay (low voltage):** the gateway, on the top rail extended into the bay, plus the level-shifter board and buck converter.
+
+How it goes together:
+- **Back:** 1/4" plywood, cut to 880 × 270 mm. It carries the 3 DIN rails, the PSU and the bay electronics. It also has vent slots behind the PSU and the wall hangers.
+- **Front:** 1/8" black acrylic, laser-cut in one piece. It has one window per module, sized from the module CAD, and a vent grille over the PSU's fan. It's held on with M3 countersunk screws into printed brackets, so it comes off for service.
+- **Sides:** 1/8" black LED acrylic, about 95 mm deep. It looks matte black when the LEDs are off and passes about 29% of their light, in the LEDs' own colour. The WS2815 strip sits on printed clips about 10 mm inside the panels so the LEDs blend instead of showing as dots. The C14 inlet goes through the left end panel.
+- **Joints:** printed corner brackets plus M3 screws and nuts left over from §3, which has about 120 spare M3×8 screws and 60 spare nuts.
+- **Laser bed:** the front and back each need a bed at least about 900 × 280 mm (36 × 12" class).
+
+| Item | Link | Qty | Unit | Ext | Price |
+|---|---|---|---|---|---|
+| 1/4" × 2 × 4 ft sanded plywood (back). If it's laser-cut, birch cuts cleaner than pine | [Home Depot 203438872](https://homedepot.com/p/1-4-in-x-2-ft-x-4-ft-Pine-Sanded-Plywood-1502100/203438872) | 1 | $11.22 | $11.22 | SNIP |
+| 1/8" black acrylic, 12 × 36" (front: 880 × 270 fits in 914 × 305) | [Home Depot Falken Design 308669432](https://www.homedepot.com/p/Falken-Design-12-in-x-36-in-x-1-8-in-Thick-Acrylic-Black-Opaque-Sheet-Falken-Design-ACRYLIC-BK-1-8-1236/308669432) | 1 | $17.49 | $17.49 | SNIP |
+| 1/8" black LED cast acrylic, 12 × 18" (sides). Two sheets give six 95 mm strips: the top and bottom are two strips each, joined at the centre, plus the two end panels | [Laser by the Creek](https://laseredbythecreek.com/products/1-8-black-led-cast-acrylic-sheets-matte-gloss-finish) | 2 | $14.95 | $29.90 | LIVE |
+| *Alternative:* the same material in 24 × 36", for seamless top and bottom strips | same listing | (1) | $59.95 | (+$30.05) | LIVE |
+| M3 screws and nuts for the brackets and front panel | spares from §3 | ~24 | – | $0 | **Already have** |
+| **Subtotal** | | | | **$58.61** | |
+
+## 10. 3D-printed parts (not priced)
 
 | Part | Qty/module | Qty (45 modules) |
 |---|---|---|
@@ -236,3 +260,4 @@ Pi prices are high in 2026 because of the RAM shortage.
 | Wire Retainer | 1 | 45 |
 | Flap | 64 | 2880 |
 | Gateway case (base + shell, `SplitFlapGatewayCase.3mf`) | – | 1 |
+| Case corner brackets (side ↔ back and side ↔ front), front-panel screw brackets, top/bottom strip splices, LED strip clips, wall hangers (to design) | – | ~30 |
