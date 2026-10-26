@@ -4,7 +4,7 @@ A 3 × 15 (45-module) split-flap wall: Adam G Makes modules on Kevin's ATtiny161
 ESP32-S3 RS-485 gateway, a WS2815 LED perimeter strip, and a Raspberry Pi running Home Assistant
 with a "Hey Venus" voice satellite. See `../gateway/CLAUDE.md` for the full project plan.
 
-**Prices checked 2026-10-19, in USD, before sales tax and shipping unless a row says otherwise.**
+**Prices checked 2026-10-19 (JLCPCB driver-board quote 2026-10-25), in USD, before sales tax and shipping unless a row says otherwise.**
 The *Price* column marks where each number came from:
 - **LIVE**: read from the product page.
 - **SNIP**: taken from a search-result snippet, because the store blocked page loads.
@@ -16,7 +16,7 @@ Pack prices are rounded up to whole packs.
 
 | Section | Cost |
 |---|---|
-| [1. Driver PCBs, assembled by JLCPCB (50 boards)](#1-driver-pcb-jlcpcb-assembled) | $264.00 |
+| [1. Driver PCBs V5, assembled by JLCPCB (50 boards)](#1-driver-pcb-jlcpcb-assembled) | $327.23 |
 | [2. Bus boards (10 bare PCBs + headers)](#2-bus-board) | $18.00 |
 | [3. Module hardware (45 modules)](#3-module-hardware-45-modules) | $237.66 |
 | [4. Programming (UPDI flasher)](#4-programming-updi-flasher) | incl. above |
@@ -24,14 +24,13 @@ Pack prices are rounded up to whole packs.
 | [6. Power](#6-power) | $60.64 |
 | [7. LED perimeter strip](#7-led-perimeter-strip) | $38.37 |
 | [9. Case (plywood back, laser-cut acrylic)](#9-case) | ≈ $70.12 |
-| **Wall total (Kevin's hardware side)** | **≈ $707.78** |
+| **Wall total (Kevin's hardware side)** | **≈ $771.01** |
 | [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $218.53 |
-| **Grand total** | **≈ $926** |
+| **Grand total** | **≈ $990** |
 
-Realistic all-in budget: **≈ $970–995**. The proposal asks for $950; the savings checks (Pi, IEC cord/fuses) cover the gap.
-- The total above already includes shipping and tariffs for JLCPCB and Elecrow.
+Realistic all-in budget: **≈ $1,035–1,060**, about $85–110 over the $950 the proposal asks for.
+- The total above already includes shipping and tariffs for JLCPCB (actual checkout total) and Elecrow.
 - Add roughly $45–70 for shipping from the other stores: Vetco, Adafruit, Seeed, Bravo Electro, Waveshare and Laser by the Creek. Amazon is usually free over $35 or with Prime; Home Depot is store pickup.
-- The JLCPCB estimates can still move ±$20.
 
 Owned parts are listed with **Already have** and count as $0.
 
@@ -46,53 +45,55 @@ Optional add-ons, not in the total:
 
 ## 1. Driver PCB (JLCPCB assembled)
 
-Source: `PCBs/Kicad/SplitFlapDriverATtiny1616V4.kicad_pcb.kicad_pcb`. The board is 30 × 60 mm, 2-layer, 1.6 mm.
+Source: `PCBs/Kicad/SplitFlapDriverV5.kicad_pcb.kicad_pcb` (driver board **V5**). The board is 30 × 60 mm, 2-layer, 1.6 mm.
 
 The order is 50 boards (45 needed plus 5 spares) using JLCPCB **Economic PCBA**, top side only.
-Every part on the board is Economic-eligible. JLCPCB solders the through-hole connectors too.
+JLCPCB solders the two through-hole connectors (J3, J4) too. Parts marked DNP are left off the
+BOM and CPL and are fitted by hand.
 
-| Ref | Part | LCSC | JLC lib | Qty/board | Order qty | Unit | Ext |
-|---|---|---|---|---|---|---|---|
-| U1 | ATtiny1616-MNR (VQFN-20) | [C507118](https://www.lcsc.com/product-detail/C507118.html) | Extended | 1 | 50 | $0.772 | $38.60 |
-| U2 | ULN2003ADR (SOIC-16) | [C7512](https://www.lcsc.com/product-detail/C7512.html) | Basic | 1 | 50 | $0.1144 | $5.72 |
-| U3 | SN65HVD72DR RS-485 (SOIC-8) | [C48125](https://www.lcsc.com/product-detail/C48125.html) | Extended | 1 | 50 | $0.8899 | $44.50 |
-| U5 | SPX3819M5-L-3-3 LDO (SOT-23-5) | [C20617301](https://www.lcsc.com/product-detail/C20617301.html) | Extended | 1 | 50 | $0.0721 | $3.61 |
-| U6 | SPX3819M5-L-5-0 LDO (SOT-23-5) | [C20617302](https://www.lcsc.com/product-detail/C20617302.html) | Extended | 1 | 50 | $0.1063 | $5.32 |
-| C2, C3, C6, C8 | 470 nF 0603 | [C1623](https://www.lcsc.com/product-detail/C1623.html) | Basic | 4 | 200 | $0.0129 | $2.58 |
-| C4, C5, C9 | 10 µF 0603 | [C19702](https://www.lcsc.com/product-detail/C19702.html) | Basic | 3 | 160 | $0.0273 | $4.37 |
-| C7 | 100 nF 0603 | [C14663](https://www.lcsc.com/product-detail/C14663.html) | Basic | 1 | 50 | $0.0109 | $0.55 |
-| C1 | 100 µF electrolytic 5 × 5.4 | [C3347](https://www.lcsc.com/product-detail/C3347.html) | Extended | 1 | 60 | $0.0279 | $1.67 |
-| R1 | 0 Ω 0805 | [C17477](https://www.lcsc.com/product-detail/C17477.html) | Basic | 1 | 100 | $0.0045 | $0.45 |
-| R2 | 51 Ω 0603 (schematic says 60R; see note) | [C23197](https://www.lcsc.com/product-detail/C23197.html) | Basic | 1 | 100 | $0.0017 | $0.17 |
-| D1 | Red LED 0603 | [C2286](https://www.lcsc.com/product-detail/C2286.html) | Basic | 1 | 100 | $0.0077 | $0.77 |
-| J1 | 1×3 2.54 mm header (UPDI) | [C124376](https://www.lcsc.com/product-detail/C124376.html) | Extended | 1 | 60 | $0.0345 | $2.07 |
-| J3 | JST-XH B5B-XH-A, 5-pin (stepper) | [C157991](https://www.lcsc.com/product-detail/C157991.html) | Extended | 1 | 50 | $0.0703 | $3.52 |
-| J4 | JST-PH B3B-PH-K, 3-pin 2.0 mm (Hall sensor) | [C131339](https://www.lcsc.com/product-detail/C131339.html) | Extended | 1 | 50 | $0.042 | $2.10 |
-| J5 | 1×5 2.54 mm header (IO breakout), **optional, leave unpopulated** | [C124379](https://www.lcsc.com/product-detail/C124379.html) | Extended | – | – | $0.0559 | ($2.80) |
-| J2, J6, J7, J8 | Pogo-pin pads (+VBUS, GND, A, B). The pins are hand-soldered and counted in §3 | – | – | – | – | – | – |
-| | **Components** (+ ~3% JLC attrition) | | | | | | **≈ $119** |
+| Ref | Part | LCSC | JLC lib | Qty/board | Order qty |
+|---|---|---|---|---|---|
+| U1 | ATtiny1616-MNR (VQFN-20, 3 × 3 mm) | [C507118](https://www.lcsc.com/product-detail/C507118.html) | Extended | 1 | 50 |
+| U2 | TI ULN2003ADR (SOIC-16, 3.9 mm narrow body) | [C7512](https://www.lcsc.com/product-detail/C7512.html) | Basic | 1 | 50 |
+| U3 | TI SN65HVD72DR RS-485 (SOIC-8, 3.9 mm narrow body) | [C48125](https://www.lcsc.com/product-detail/C48125.html) | Extended | 1 | 50 |
+| U5 | MaxLinear SPX3819M5-L-3-3/TR, 3.3 V LDO (SOT-23-5) | [C9055](https://www.lcsc.com/product-detail/C9055.html) | Extended | 1 | 50 |
+| U6 | MaxLinear SPX3819M5-L-5-0/TR, 5 V LDO (SOT-23-5) | [C13417](https://www.lcsc.com/product-detail/C13417.html) | Extended | 1 | 50 |
+| F1 | Ruilon SMD1812P075TF/24 resettable fuse: 750 mA hold, 1.5 A trip, 24 V (1812) | [C12557](https://www.lcsc.com/product-detail/C12557.html) | Extended | 1 | 50 |
+| D3 | MDD SS34 Schottky, 40 V 3 A (SMA), reverse-polarity protection | [C8678](https://www.lcsc.com/product-detail/C8678.html) | Basic | 1 | 50 |
+| C1 | KNSCHA 100 µF 25 V electrolytic (6.3 × 5.4 mm) | [C4747964](https://www.lcsc.com/product-detail/C4747964.html) | Extended | 1 | 50 |
+| C2, C3, C6, C8 | Samsung 470 nF 25 V X7R 0603 | [C1623](https://www.lcsc.com/product-detail/C1623.html) | Basic | 4 | 200 |
+| C4 | Samsung 10 µF 25 V X5R 0805 (12 V rail) | [C15850](https://www.lcsc.com/product-detail/C15850.html) | Basic | 1 | 50 |
+| C5, C9 | Samsung 10 µF 10 V X5R 0603 (3.3 V / 5 V rails) | [C19702](https://www.lcsc.com/product-detail/C19702.html) | Basic | 2 | 100 |
+| C7, C10, C11 | Yageo 100 nF 50 V X7R 0603 | [C14663](https://www.lcsc.com/product-detail/C14663.html) | Basic | 3 | 150 |
+| R2 | 470 Ω 0603 (status LED) | [C23179](https://www.lcsc.com/product-detail/C23179.html) | Basic | 1 | 50 |
+| R3, R4 | 10 kΩ 0603 (R3: DE/RE pull-down; R4: RXD pull-up) | [C25804](https://www.lcsc.com/product-detail/C25804.html) | Basic | 2 | 100 |
+| D1 | Red LED 0603 (KENTO KT-0603R) | [C2286](https://www.lcsc.com/product-detail/C2286.html) | Basic | 1 | 50 |
+| J3 | JST-XH B5B-XH-A, 5-pin (stepper) | [C157991](https://www.lcsc.com/product-detail/C157991.html) | Extended | 1 | 50 |
+| J4 | JST-PH B3B-PH-K-S, 3-pin 2.0 mm (Hall sensor) | [C131339](https://www.lcsc.com/product-detail/C131339.html) | Extended | 1 | 50 |
+| J1 | 1×3 2.54 mm UPDI header, **DNP**: program through a temporary header or pogo clip | – | – | – | – |
+| J5 | 1×5 2.54 mm IO breakout header, **DNP** | – | – | – | – |
+| J2, J6, J7, J8 | Pogo-pin pads (+VBUS, GND, A, B), **DNP**. The pins are hand-soldered and counted in §3 | – | – | – | – |
 
-**JLCPCB order estimate.** Fee rates were read from the [JLC fee page](https://jlcpcb.com/help/article/pcb-assembly-price) (LIVE). The bare board price, shipping and tariff are estimates.
+**JLCPCB order (checkout 2026-10-25).**
 
 | Item | Cost |
 |---|---|
-| Bare PCB, 50 pcs (EST) | ≈ $8 |
-| Economic setup + stencil | $9.71 |
-| Extended-part loading (8 × $3.07) | $24.56 |
-| SMT joints (~79/board) + through-hole joints (11/board) + hand-solder labor | $18.92 |
-| Components | ≈ $119 |
-| US tariff, ~35% pre-collected on DDP orders (EST) | ≈ $63 |
-| Shipping, Global Standard / DHL (EST) | ≈ $20 |
-| **Total (≈ $5.90 per needed board)** | **≈ $264** |
+| Boards, parts, assembly and Extended-part fees, 50 assembled boards | $205.12 |
+| Customs and duties | $71.80 |
+| Shipping | $45.00 |
+| Other checkout fees (the difference between the line items and the checkout total) | $5.31 |
+| **Total (≈ $7.27 per needed board)** | **$327.23** |
 
 Notes:
-- **R2 has no Basic 60 Ω part.** 51 Ω (C23197) or 47 Ω (C23182) are Basic. An exact 62 Ω part would be Extended and add about $3. 51 Ω just makes the status LED slightly brighter.
-- **U6 (C20617302) is low on stock:** 260 left. Order soon, or find an alternative 5 V SOT-23-5 LDO.
-- **The old BOM was wrong in three places:**
-  - It listed D1 and R2 as 0201. They're 0603 on this board. The 0201 parts would also have forced the more expensive Standard PCBA.
-  - It listed J4 as a 2.54 mm header. It's a JST-PH 2.0 mm connector, so the Hall sensor cable in §3 needs a JST-PH 3-pin plug.
-  - It didn't list J1 or J5.
-- **The KiCad schematic has no LCSC part-number fields.** Add them, or map the parts in JLC's BOM tool, using the numbers above.
+- **Changes from V4:**
+  - RS-485 moved to the ATtiny's hardware USART: TXD on PA1, RXD on PA2, DE/RE on PA4 (XDIR). The firmware must use `Serial.swap(1)`; firmware built for V4 (SoftwareSerial on PA5/PA6/PA7) won't talk on the bus.
+  - U2 and U3 now use the narrow 3.9 mm SOIC footprints that match the parts JLCPCB places. V4 had 5.3 mm footprints.
+  - Added F1 (polyfuse) and D3 (reverse-polarity diode) in the 12 V input, R3 (DE/RE pull-down), R4 (RXD pull-up), and C10/C11 (decoupling).
+  - R1 (0 Ω link) removed. R2 changed to 470 Ω; the LED runs at about 3 mA.
+- **8 Extended parts** (U1, U3, U5, U6, F1, C1, J3, J4), each with a JLC loading fee. These are included in the quote.
+- **Motors must be the 12 V 28BYJ-48** (coils about 130–200 Ω). A 5 V motor (about 50 Ω) draws about 0.47 A per module on this board, overheats, and breaks the row-fuse and PSU budget. Measure one coil (red to any other wire) on every batch.
+- **Check the stock column** when JLC matches the BOM, especially for the Extended parts.
+- In JLC's assembly preview, check pin 1 on U1, U2, U3, U5 and U6, the polarity of C1, D1 and D3, and that J3 and J4 sit on their holes.
 
 ## 2. Bus board
 
