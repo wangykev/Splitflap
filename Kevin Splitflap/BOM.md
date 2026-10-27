@@ -4,7 +4,7 @@ A 3 × 15 (45-module) split-flap wall: Adam G Makes modules on Kevin's ATtiny161
 ESP32-S3 RS-485 gateway, a WS2815 LED perimeter strip, and a Raspberry Pi running Home Assistant
 with a "Hey Venus" voice satellite. See `../gateway/CLAUDE.md` for the full project plan.
 
-**Prices checked 2026-10-19 (JLCPCB driver + bus board checkout 2026-10-27), in USD, before sales tax and shipping unless a row says otherwise.**
+**Prices checked 2026-10-19 (JLCPCB driver + bus board quote 2026-10-27, not yet ordered; power supply 2026-10-27), in USD, before sales tax and shipping unless a row says otherwise.**
 The *Price* column marks where each number came from:
 - **LIVE**: read from the product page.
 - **SNIP**: taken from a search-result snippet, because the store blocked page loads.
@@ -18,20 +18,20 @@ Pack prices are rounded up to whole packs.
 |---|---|
 | [1. Driver PCBs V5, assembled by JLCPCB (50 boards)](#1-driver-pcb-jlcpcb-assembled) | $327.23 |
 | [2. Bus boards (15 bare PCBs, same JLCPCB order)](#2-bus-board) | $21.52 |
-| ↳ *JLCPCB checkout for §1 + §2 together* | *$348.75* |
+| ↳ *JLCPCB quote for §1 + §2 together* | *$348.75* |
 | [3. Module hardware (45 modules)](#3-module-hardware-45-modules) | $237.66 |
 | [4. Programming (UPDI flasher)](#4-programming-updi-flasher) | incl. above |
 | [5. Gateway & RS-485 bus](#5-gateway--rs-485-bus) | $18.99 |
-| [6. Power](#6-power) | $60.64 |
+| [6. Power](#6-power) | $62.10 |
 | [7. LED perimeter strip](#7-led-perimeter-strip) | $38.37 |
 | [9. Case (plywood back, laser-cut acrylic)](#9-case) | ≈ $70.12 |
-| **Wall total (Kevin's hardware side)** | **≈ $774.53** |
+| **Wall total (Kevin's hardware side)** | **≈ $775.99** |
 | [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $218.53 |
-| **Grand total** | **≈ $993** |
+| **Grand total** | **≈ $995** |
 
-Realistic all-in budget: **≈ $1,038–1,063**, about $88–113 over the $950 the proposal asks for.
-- The total above already includes shipping and tariffs for JLCPCB (actual checkout total) and Elecrow.
-- Add roughly $45–70 for shipping from the other stores: Vetco, Adafruit, Seeed, Bravo Electro, Waveshare and Laser by the Creek. Amazon is usually free over $35 or with Prime; Home Depot is store pickup.
+Realistic all-in budget: **≈ $1,040–1,065**, about $90–115 over the $950 the proposal asks for.
+- The total above already includes shipping and tariffs for JLCPCB (the full checkout quote) and Elecrow.
+- Add roughly $45–70 for shipping from the other stores: Vetco, Adafruit, Seeed, Jameco, DigiKey, Waveshare and Laser by the Creek. Amazon is usually free over $35 or with Prime; Home Depot is store pickup.
 
 Owned parts are listed with **Already have** and count as $0.
 
@@ -75,15 +75,15 @@ BOM and CPL and are fitted by hand.
 | J5 | 1×5 2.54 mm IO breakout header, **DNP** | – | – | – | – |
 | J2, J6, J7, J8 | Pogo-pin pads (+VBUS, GND, A, B), **DNP**. The pins are hand-soldered and counted in §3 | – | – | – | – |
 
-**JLCPCB order, driver boards alone (quote 2026-10-25).** The final checkout also included the §2
-bus boards; together they came to **$348.75**.
+**JLCPCB order, driver boards alone (quote 2026-10-25), not yet placed.** The checkout quote with
+the §2 bus boards added comes to **$348.75**.
 
 | Item | Cost |
 |---|---|
 | Boards, parts, assembly and Extended-part fees, 50 assembled boards | $205.12 |
 | Customs and duties | $71.80 |
 | Shipping | $45.00 |
-| Other checkout fees (the difference between the line items and the checkout total) | $5.31 |
+| Other checkout fees (the difference between the line items and the quoted checkout total) | $5.31 |
 | **Total (≈ $7.27 per needed board)** | **$327.23** |
 
 Notes:
@@ -94,7 +94,7 @@ Notes:
   - R1 (0 Ω link) removed. R2 changed to 470 Ω; the LED runs at about 3 mA.
   - PC0 is tied to GND as a board ID. With `INPUT_PULLUP` it reads LOW on V5 and HIGH on V4 (floating), so one firmware can pick the right serial pins at boot. Never drive PC0 as an output.
 - **8 Extended parts** (U1, U3, U5, U6, F1, C1, J3, J4), each with a JLC loading fee. These are included in the quote.
-- **Motors must be the 12 V 28BYJ-48** (coils about 130–200 Ω). A 5 V motor (about 50 Ω) draws about 0.47 A per module on this board, overheats, and breaks the row-fuse and PSU budget. Measure one coil (red to any other wire) on every batch.
+- **Motors must be the 12 V 28BYJ-48** (coils about 130–200 Ω). A 5 V motor (about 50 Ω) draws about 0.47 A per module on this board, overheats, and breaks the power budget. Measure one coil (red to any other wire) on every batch.
 - **Check the stock column** when JLC matches the BOM, especially for the Extended parts.
 - In JLC's assembly preview, check pin 1 on U1, U2, U3, U5 and U6, the polarity of C1, D1 and D3, and that J3 and J4 sit on their holes.
 
@@ -103,11 +103,11 @@ Notes:
 Source: `PCBs/bus-board-5-module/` (Gerbers: `FAB/SplitFlapBusBoard-5module-202mm.zip`). This is
 Adam G's 5-module bus board rebuilt in KiCad with the A/B labels fixed. It's a 202 × 24 mm bare
 2-layer PCB with exposed copper strips for +12 V, B, A and GND on the front, where the module pogo
-pins ride. A row of 15 modules is 15 × 40.4 mm = 606 mm, so each row uses 3 boards: 9 needed, 15 ordered.
+pins ride. A row of 15 modules is 15 × 40.4 mm = 606 mm, so each row uses 3 boards: 9 needed, 15 to order.
 
 | Item | Link | Qty | Unit | Ext | Price |
 |---|---|---|---|---|---|
-| Bare PCB, 202 × 24 mm, 2-layer, 1.6 mm, ordered with the §1 driver boards | JLCPCB | 15 | $0.753 | $11.30 | LIVE |
+| Bare PCB, 202 × 24 mm, 2-layer, 1.6 mm, ordered together with the §1 driver boards | JLCPCB | 15 | $0.753 | $11.30 | LIVE |
 | Extra shipping, customs and fees from adding them to the §1 order ($348.75 − $327.23 − $11.30) | – | – | – | $10.22 | LIVE |
 | **Subtotal** | | | | **$21.52** | |
 
@@ -171,31 +171,37 @@ cm of thin wire and superglue.
 
 ## 6. Power
 
-**Load estimate:**
-- 45 steppers: about 7 A
-- WS2815 strip: 6–8 A at full white, much less at the capped brightness
-- Gateway: under 1 A
+An **external** 12 V brick: no mains wiring enters the case. The brick plugs into the wall, and its
+DC cable plugs into a panel jack on the case.
 
-That comes to about 16 A peak. The 29 A PSU leaves headroom.
+**Load estimate:**
+- 45 steppers: about 7 A, only while flaps are moving. The firmware releases the coils after every move, so they draw nothing at rest.
+- WS2815 strip: 6–8 A at full white uncapped. The LED code caps it in software at **2 A** with FastLED's `setMaxPowerInVoltsAndMilliamps(12, 2000)`.
+- Gateway: under 1 A.
+
+That comes to about 10 A peak, for a few seconds while flaps move, and about 3 A most of the time. The 15 A brick runs at about 67% at peak.
+
+**Voltage at the modules:** 12.0 V from the brick, minus about 0.1 V (typical) to 0.4 V (peak) in its DC cable, minus the 0.3 V drop of each driver's D3 Schottky diode. That leaves about **11.25–11.6 V**, which is fine: the ULN2003 already drops about 1 V, and the 5 V regulator needs only about 5.4 V. No boost converter is needed. Don't extend the brick's DC cable; if you need more reach, extend the AC side.
 
 | Item | Link | Qty | Unit | Ext | Price |
 |---|---|---|---|---|---|
-| Mean Well LRS-350-12 (12 V, 29 A) | [Bravo Electro](https://www.bravoelectro.com/lrs-350-12.html) | 1 | $33.30 | $33.30 | LIVE |
-| C14 inlet with fuse holder and **black** rocker switch, 10 A 250 V, 3-pack with 18 AWG leads (no separate switch needed). If it ships with a 10 A fuse, replace it with the 4 A slow-blow below | [Amazon B0GYWP9JJ2](https://www.amazon.com/dp/B0GYWP9JJ2) | 1 pack | $13.89 | $13.89 | User-checked |
-| 5×20 mm slow-blow fuse, 5 pcs (goes in the C14 inlet's fuse drawer). **Pick the 4 A pack**, same price; 3.15 A is tight | [Vetco](https://vetco.net/products/3-15amp5x20s_3-15_amp_5x20mm_slow_blow_fuse_5pk) | 1 | $7.50 | $7.50 | LIVE |
-| IEC C13 power cord, 6 ft, 18/3 | [Vetco](https://vetco.net/products/6-iec-power-cord-18-3-awg-black) | 1 | $5.95 | $5.95 | LIVE |
-| 18 AWG red/black wire for 12 V runs. About 15 ft: PSU → 3 bus rows + both strip ends | [Vetco](https://vetco.net/products/jsc-2440_18_awg_2_conductor_red-black_speaker_wire_-_power_wire_-usa_made) ($1.05/ft) | ~15 ft | – | $0 | **Already have** |
-| Mains wire, C14 inlet → PSU (L, N, earth). **Must be mains-rated 3-wire:** cut ~30 cm from an old IEC or extension cord. Earth goes to the PSU's FG terminal | old cord | ~30 cm | – | $0 | **Already have** |
-| WAGO 221 lever connectors | [Home Depot](https://www.homedepot.com/p/WAGO-221-Lever-Nut-Combo-Kit-40-pack-887-0408/336511597) ($29.97 / 40) | a few | – | $0 | **Already have** |
+| Mean Well OWA-200U-12: 12 V, 15 A, 180 W brick. Fully potted, IP67, fanless, Class II (no earth). US plug cord attached; 4-pin power DIN output plug (Kycon KPPX-4P or equivalent). 195 × 68 × 39.5 mm | [Jameco 2324383](https://www.jameco.com/z/OWA-200U-12-MEAN-WELL-12V-15A-180W-Moisture-proof-Power-Adaptor-DIN4_2324383.html) / [Bravo Electro](https://www.bravoelectro.com/owa-200u-12.html) ($61.80) | 1 | $59.50 | $59.50 | SNIP |
+| Kycon KPJX-PM-4S-S: female 4-pin power DIN jack, panel mount, shielded. Mates with the brick's plug; it goes through the case side and is wired to the power board. **Before wiring, confirm which pins are +V and −V with a multimeter on the brick's plug** (two pins each) | [DigiKey 9990082](https://www.digikey.com/en/products/detail/kycon-inc/KPJX-PM-4S-S/9990082) | 1 | $2.60 | $2.60 | SNIP |
+| 18 AWG red/black wire for 12 V runs. About 15 ft: jack → 3 bus rows + both strip ends + gateway. Keep the jack-to-distribution run short (under ~20 cm), since it carries the full current | [Vetco](https://vetco.net/products/jsc-2440_18_awg_2_conductor_red-black_speaker_wire_-_power_wire_-usa_made) ($1.05/ft) | ~15 ft | – | $0 | **Already have** |
+| WAGO 221 lever connectors, for 12 V distribution until the power board replaces them | [Home Depot](https://www.homedepot.com/p/WAGO-221-Lever-Nut-Combo-Kit-40-pack-887-0408/336511597) ($29.97 / 40) | a few | – | $0 | **Already have** |
 | Heat-shrink tubing | – | – | – | $0 | **Already have** |
 | *Optional:* ferrule crimp kit with 1800 ferrules | [Vetco](https://vetco.net/products/vupn1576_ferrule_wire_crimping_tool_kit_with_1800pcs) | (1) | $39.95 | – | LIVE |
-| *Alternative:* separate SPST rocker switch | [Vetco](https://vetco.net/products/ces-66-2200_spst_snap-in_illuminated_rocker_switch_on-off_20a_120vac_amber) | (1) | $2.99 | – | LIVE |
-| **Subtotal** | | | | **$60.64** | |
+| **Subtotal** | | | | **$62.10** | |
+
+Notes:
+- **No power switch.** The brick has none, and the C14 inlet with its rocker switch is gone. Unplug the brick, or let the gateway blank the display; a 12 V switch can go on the power board later.
+- **Protection:** the brick shuts down on a short, overload or overheating, and each driver has its own 1.5 A polyfuse (F1). Per-branch fuses are planned for the power board.
+- **Removed from the earlier internal-supply plan:** Mean Well LRS-350-12 ($33.30), C14 inlet with fuse and switch ($13.89), 4 A fuses ($7.50), IEC C13 cord ($5.95; the brick's cord is attached), and the mains wire.
 
 ## 7. LED perimeter strip
 
 WS2815 12 V, 144 LED/m, about 3 m around the perimeter. Data comes from GPIO2 through a
-74AHCT125 and a 330 Ω resistor. The strip is powered straight from the PSU and injected at both
+74AHCT125 and a 330 Ω resistor. The strip is powered straight from the 12 V supply and injected at both
 ends. Details are in `../gateway/CLAUDE.md`, Phase 2.
 
 | Item | Link | Qty | Unit | Ext | Price |
@@ -240,13 +246,13 @@ Pi prices are high in 2026 because of the RAM shortage.
 
 The modules (606 × 240 mm) sit in the middle, with a bay on each side for the electronics. That makes the case about **880 × 280 × 95 mm** outside. The height is 240 mm of modules, plus about 15 mm above and below for the LED strip and its standoff, plus the two 3 mm panels.
 
-- **Left bay (mains):** the PSU, mounted flat on the plywood (215 mm tall), plus the C14 inlet. All mains wiring stays in this bay.
+- **Left bay:** no longer holds mains or a power supply, since the 12 V brick sits outside the case. It only needs the 4-pin DIN power jack and the 12 V distribution (later the power board), so it can shrink. The case size will be revisited once the power board is laid out.
 - **Right bay (low voltage):** the gateway, on the top rail extended into the bay, plus the level-shifter board and buck converter.
 
 How it goes together:
-- **Back:** 1/4" plywood, cut to 880 × 280 mm. It carries the 3 DIN rails, the PSU and the bay electronics. It also has vent slots behind the PSU and the wall hangers.
-- **Front:** 1/8" black acrylic, laser-cut in one piece. It has one window per module, sized from the module CAD, and a vent grille over the PSU's fan. It's held on with M3 countersunk screws into printed brackets, so it comes off for service.
-- **Sides:** 1/8" black LED acrylic, about 95 mm deep. It looks matte black when the LEDs are off and passes about 29% of their light, in the LEDs' own colour. The WS2815 strip sits on printed clips about 10 mm inside the panels so the LEDs blend instead of showing as dots. The C14 inlet goes through the left end panel.
+- **Back:** 1/4" plywood, cut to 880 × 280 mm. It carries the 3 DIN rails, the bay electronics and the wall hangers.
+- **Front:** 1/8" black acrylic, laser-cut in one piece. It has one window per module, sized from the module CAD. It's held on with M3 countersunk screws into printed brackets, so it comes off for service.
+- **Sides:** 1/8" black LED acrylic, about 95 mm deep. It looks matte black when the LEDs are off and passes about 29% of their light, in the LEDs' own colour. The WS2815 strip sits on printed clips about 10 mm inside the panels so the LEDs blend instead of showing as dots. The 4-pin DIN power jack goes through the left end panel.
 - **Joints:** printed corner brackets plus M3 screws and nuts left over from §3, which has about 120 spare M3×8 screws and 60 spare nuts.
 - **Laser bed:** the front and back each need a bed of at least about 900 × 290 mm. The 18 × 36" front sheet fits whole on a 36 × 24" bed; on a smaller bed, trim it to about 290 mm tall on a table saw first.
 
