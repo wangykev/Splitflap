@@ -3028,9 +3028,9 @@
 			(at 1.45 -0.8 270)
 			(size 0.143431 0.143431)
 			(layers "F.Cu" "F.Mask" "F.Paste")
-			(net "unconnected-(U1-PC0-Pad15)")
+			(net "GND")
 			(pinfunction "PC0_15")
-			(pintype "bidirectional+no_connect")
+			(pintype "bidirectional")
 			(options
 				(clearance outline)
 				(anchor circle)
@@ -9539,6 +9539,14 @@
 		(uuid "1af732d7-7379-41ae-9063-0c234f99a8c3")
 	)
 	(segment
+		(start 139.4 96.25)
+		(end 139.4 96.4)
+		(width 0.2)
+		(layer "F.Cu")
+		(net "GND")
+		(uuid "20e5009e-b3e2-4f67-beb4-f19ad013471c")
+	)
+	(segment
 		(start 142.925 88.025)
 		(end 143.6 87.35)
 		(width 0.2)
@@ -9569,6 +9577,14 @@
 		(layer "F.Cu")
 		(net "GND")
 		(uuid "4529e05b-3dbb-4aa8-8b3a-7534373958fd")
+	)
+	(segment
+		(start 139.4 96.4)
+		(end 140.2 97.2)
+		(width 0.2)
+		(layer "F.Cu")
+		(net "GND")
+		(uuid "4b609801-675b-4993-8107-dbefa6f744f9")
 	)
 	(segment
 		(start 126.25 104.7)
@@ -9883,6 +9899,14 @@
 		(filling no)
 		(net "GND")
 		(uuid "2c8b8a41-44d8-429d-9764-e2e2b95f1bf7")
+	)
+	(via
+		(at 140.2 97.2)
+		(size 0.6)
+		(drill 0.3)
+		(layers "F.Cu" "B.Cu")
+		(net "GND")
+		(uuid "36647502-be80-4528-9131-2f7926166cd7")
 	)
 	(via
 		(at 122.5 111.5)

@@ -4,7 +4,7 @@ A 3 × 15 (45-module) split-flap wall: Adam G Makes modules on Kevin's ATtiny161
 ESP32-S3 RS-485 gateway, a WS2815 LED perimeter strip, and a Raspberry Pi running Home Assistant
 with a "Hey Venus" voice satellite. See `../gateway/CLAUDE.md` for the full project plan.
 
-**Prices checked 2026-10-19 (JLCPCB driver-board quote 2026-10-25), in USD, before sales tax and shipping unless a row says otherwise.**
+**Prices checked 2026-10-19 (JLCPCB driver + bus board checkout 2026-10-27), in USD, before sales tax and shipping unless a row says otherwise.**
 The *Price* column marks where each number came from:
 - **LIVE**: read from the product page.
 - **SNIP**: taken from a search-result snippet, because the store blocked page loads.
@@ -17,18 +17,19 @@ Pack prices are rounded up to whole packs.
 | Section | Cost |
 |---|---|
 | [1. Driver PCBs V5, assembled by JLCPCB (50 boards)](#1-driver-pcb-jlcpcb-assembled) | $327.23 |
-| [2. Bus boards (10 bare PCBs + headers)](#2-bus-board) | $18.00 |
+| [2. Bus boards (15 bare PCBs, same JLCPCB order)](#2-bus-board) | $21.52 |
+| ↳ *JLCPCB checkout for §1 + §2 together* | *$348.75* |
 | [3. Module hardware (45 modules)](#3-module-hardware-45-modules) | $237.66 |
 | [4. Programming (UPDI flasher)](#4-programming-updi-flasher) | incl. above |
 | [5. Gateway & RS-485 bus](#5-gateway--rs-485-bus) | $18.99 |
 | [6. Power](#6-power) | $60.64 |
 | [7. LED perimeter strip](#7-led-perimeter-strip) | $38.37 |
 | [9. Case (plywood back, laser-cut acrylic)](#9-case) | ≈ $70.12 |
-| **Wall total (Kevin's hardware side)** | **≈ $771.01** |
+| **Wall total (Kevin's hardware side)** | **≈ $774.53** |
 | [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $218.53 |
-| **Grand total** | **≈ $990** |
+| **Grand total** | **≈ $993** |
 
-Realistic all-in budget: **≈ $1,035–1,060**, about $85–110 over the $950 the proposal asks for.
+Realistic all-in budget: **≈ $1,038–1,063**, about $88–113 over the $950 the proposal asks for.
 - The total above already includes shipping and tariffs for JLCPCB (actual checkout total) and Elecrow.
 - Add roughly $45–70 for shipping from the other stores: Vetco, Adafruit, Seeed, Bravo Electro, Waveshare and Laser by the Creek. Amazon is usually free over $35 or with Prime; Home Depot is store pickup.
 
@@ -45,7 +46,7 @@ Optional add-ons, not in the total:
 
 ## 1. Driver PCB (JLCPCB assembled)
 
-Source: `PCBs/Kicad/SplitFlapDriverV5.kicad_pcb.kicad_pcb` (driver board **V5**). The board is 30 × 60 mm, 2-layer, 1.6 mm.
+Source: `PCBs/Driverv5/SplitFlapDriverV5.kicad_pcb.kicad_pcb` (driver board **V5**). The board is 30 × 60 mm, 2-layer, 1.6 mm.
 
 The order is 50 boards (45 needed plus 5 spares) using JLCPCB **Economic PCBA**, top side only.
 JLCPCB solders the two through-hole connectors (J3, J4) too. Parts marked DNP are left off the
@@ -74,7 +75,8 @@ BOM and CPL and are fitted by hand.
 | J5 | 1×5 2.54 mm IO breakout header, **DNP** | – | – | – | – |
 | J2, J6, J7, J8 | Pogo-pin pads (+VBUS, GND, A, B), **DNP**. The pins are hand-soldered and counted in §3 | – | – | – | – |
 
-**JLCPCB order (checkout 2026-10-25).**
+**JLCPCB order, driver boards alone (quote 2026-10-25).** The final checkout also included the §2
+bus boards; together they came to **$348.75**.
 
 | Item | Cost |
 |---|---|
@@ -90,6 +92,7 @@ Notes:
   - U2 and U3 now use the narrow 3.9 mm SOIC footprints that match the parts JLCPCB places. V4 had 5.3 mm footprints.
   - Added F1 (polyfuse) and D3 (reverse-polarity diode) in the 12 V input, R3 (DE/RE pull-down), R4 (RXD pull-up), and C10/C11 (decoupling).
   - R1 (0 Ω link) removed. R2 changed to 470 Ω; the LED runs at about 3 mA.
+  - PC0 is tied to GND as a board ID. With `INPUT_PULLUP` it reads LOW on V5 and HIGH on V4 (floating), so one firmware can pick the right serial pins at boot. Never drive PC0 as an output.
 - **8 Extended parts** (U1, U3, U5, U6, F1, C1, J3, J4), each with a JLC loading fee. These are included in the quote.
 - **Motors must be the 12 V 28BYJ-48** (coils about 130–200 Ω). A 5 V motor (about 50 Ω) draws about 0.47 A per module on this board, overheats, and breaks the row-fuse and PSU budget. Measure one coil (red to any other wire) on every batch.
 - **Check the stock column** when JLC matches the BOM, especially for the Extended parts.
@@ -97,15 +100,29 @@ Notes:
 
 ## 2. Bus board
 
-Adam G's `SplitFlapBusBoard` (5-module variant) is a 202 × 24 mm bare 2-layer PCB carrying the
-conductor rail for +12 V, GND, A and B. You need 3 per row, so 9 total; order 10.
+Source: `PCBs/bus-board-5-module/` (Gerbers: `FAB/SplitFlapBusBoard-5module-202mm.zip`). This is
+Adam G's 5-module bus board rebuilt in KiCad with the A/B labels fixed. It's a 202 × 24 mm bare
+2-layer PCB with exposed copper strips for +12 V, B, A and GND on the front, where the module pogo
+pins ride. A row of 15 modules is 15 × 40.4 mm = 606 mm, so each row uses 3 boards: 9 needed, 15 ordered.
 
 | Item | Link | Qty | Unit | Ext | Price |
 |---|---|---|---|---|---|
-| Bare PCB, 202 × 24 mm, 2-layer, 1.6 mm (add it to the driver-board order) | [JLCPCB quote](https://jlcpcb.com/quote) | 10 | ≈ $1.00 | ≈ $10 | EST |
-| 1×4 2.54 mm male header (J1 on each board) | [LCSC C124378](https://www.lcsc.com/product-detail/C124378.html) | 10 | $0.0565 | $0.57 | LIVE |
-| Extra shipping + tariff when combined with §1 | – | – | – | ≈ $7.43 | EST |
-| **Subtotal** | | | | **≈ $18** | |
+| Bare PCB, 202 × 24 mm, 2-layer, 1.6 mm, ordered with the §1 driver boards | JLCPCB | 15 | $0.753 | $11.30 | LIVE |
+| Extra shipping, customs and fees from adding them to the §1 order ($348.75 − $327.23 − $11.30) | – | – | – | $10.22 | LIVE |
+| **Subtotal** | | | | **$21.52** | |
+
+Notes:
+- **Labels:** Adam's original files print `12V / A / B / GND`. The strip next to 12 V actually meets
+  the driver's **B** pin, so this version reads `12V / B / A / GND` (back silkscreen), and the nets
+  match the driver board. Wire the gateway's A and B terminals to the strips by these labels.
+- **Joining boards:** each end has 4 holes (1.0 mm), 2.54 mm in from the edge, so matching holes on
+  two butted boards are 5.08 mm apart. Bridge each strip with a short wire, or a 3-pin 2.54 mm
+  header with the middle pin pulled: 4 bridges per joint, 24 in total. Use **20 AWG** for 12 V and
+  GND (the joint nearest the feed carries up to ~3.75 A); 18 AWG is too thick for the holes.
+- Keep solder off the strip faces where the pogo pins slide, and wipe the strips with isopropyl
+  alcohol before installing.
+- `PCBs/bus-board/` holds a single-piece 606 mm version of the same board, not ordered: it would
+  have cost about $41.18 for 5 boards.
 
 ## 3. Module hardware (45 modules)
 

@@ -4322,10 +4322,6 @@
 		(uuid "0af08d72-11bd-49f2-bbe0-abdb81263d38")
 	)
 	(no_connect
-		(at 38.1 77.47)
-		(uuid "162570a2-0bb2-41b7-a2ff-e18707eff304")
-	)
-	(no_connect
 		(at 119.38 74.93)
 		(uuid "20d462fa-2127-4312-84c1-ac752b34c165")
 	)
@@ -4578,6 +4574,16 @@
 			(type default)
 		)
 		(uuid "3e15e65b-c797-41e1-8de8-2e0ea864fb32")
+	)
+	(wire
+		(pts
+			(xy 33.02 77.47) (xy 38.1 77.47)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "3f3553c9-fef5-41a0-85f4-86b85b8a603c")
 	)
 	(wire
 		(pts
@@ -6894,6 +6900,85 @@
 			(project "SplitFlapDriverV5.kicad_pcb"
 				(path "/2dad463d-4b58-4df7-9a4a-fb5d7d6b5e7d"
 					(reference "R4")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
+		(lib_id "power:GND")
+		(at 33.02 77.47 270)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "3a792723-f717-4b2a-8d91-892082fb4e3b")
+		(property "Reference" "#PWR033"
+			(at 26.67 77.47 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Value" "GND"
+			(at 29.21 77.4699 90)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify right)
+			)
+		)
+		(property "Footprint" ""
+			(at 33.02 77.47 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Datasheet" ""
+			(at 33.02 77.47 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
+			(at 33.02 77.47 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "1"
+			(uuid "e7234325-3485-414f-bcb4-4734ee5179aa")
+		)
+		(instances
+			(project "SplitFlapDriverV5.kicad_pcb"
+				(path "/2dad463d-4b58-4df7-9a4a-fb5d7d6b5e7d"
+					(reference "#PWR033")
 					(unit 1)
 				)
 			)
