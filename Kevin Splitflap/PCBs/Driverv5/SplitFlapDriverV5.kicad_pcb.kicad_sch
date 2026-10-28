@@ -6489,7 +6489,7 @@
 				(justify left)
 			)
 		)
-		(property "Value" "SN65HVD72DR"
+		(property "Value" "THVD1400DR"
 			(at 173.5933 53.34 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -6511,7 +6511,7 @@
 				)
 			)
 		)
-		(property "Datasheet" "http://www.ti.com/lit/ds/symlink/sn65hvd11-ht.pdf"
+		(property "Datasheet" "https://www.ti.com/lit/ds/symlink/thvd1400.pdf"
 			(at 171.45 40.64 0)
 			(hide yes)
 			(show_name no)
@@ -6522,7 +6522,7 @@
 				)
 			)
 		)
-		(property "Description" "3.3V, RS-485 Transceiver, SOIC-8"
+		(property "Description" "3-5.5V, 500kbps RS-485 Transceiver, SOIC-8"
 			(at 171.45 66.04 0)
 			(hide yes)
 			(show_name no)
@@ -6544,7 +6544,7 @@
 				)
 			)
 		)
-		(property "Manufacturer Part Number" "SN65HVD72DR"
+		(property "Manufacturer Part Number" "THVD1400DR"
 			(at 171.45 66.04 0)
 			(hide yes)
 			(show_name no)
@@ -6555,7 +6555,7 @@
 				)
 			)
 		)
-		(property "JLCPCB Part Number" "C48125"
+		(property "JLCPCB Part Number" "C3235232"
 			(at 171.45 66.04 0)
 			(hide yes)
 			(show_name no)

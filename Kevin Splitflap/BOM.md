@@ -16,20 +16,20 @@ Pack prices are rounded up to whole packs.
 
 | Section | Cost |
 |---|---|
-| [1. Driver PCBs V5, assembled by JLCPCB (50 boards)](#1-driver-pcb-jlcpcb-assembled) | $327.23 |
+| [1. Driver PCBs V5, assembled by JLCPCB (50 boards)](#1-driver-pcb-jlcpcb-assembled) | $258.85 |
 | [2. Bus boards (15 bare PCBs, same JLCPCB order)](#2-bus-board) | $21.52 |
-| ↳ *JLCPCB quote for §1 + §2 together* | *$348.75* |
+| ↳ *JLCPCB quote for §1 + §2 together (adjusted for the U3 swap)* | *$280.37* |
 | [3. Module hardware (45 modules)](#3-module-hardware-45-modules) | $237.66 |
 | [4. Programming (UPDI flasher)](#4-programming-updi-flasher) | incl. above |
 | [5. Gateway & RS-485 bus](#5-gateway--rs-485-bus) | $18.99 |
 | [6. Power](#6-power) | $62.10 |
 | [7. LED perimeter strip](#7-led-perimeter-strip) | $38.37 |
 | [9. Case (plywood back, laser-cut acrylic)](#9-case) | ≈ $70.12 |
-| **Wall total (Kevin's hardware side)** | **≈ $775.99** |
+| **Wall total (Kevin's hardware side)** | **≈ $707.61** |
 | [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $224.43 |
-| **Grand total** | **≈ $1,000** |
+| **Grand total** | **≈ $932** |
 
-Realistic all-in budget: **≈ $1,045–1,070**, about $95–120 over the $950 the proposal asks for.
+Realistic all-in budget: **≈ $977–1,002**, about $27–52 over the $950 the proposal asks for.
 - The total above already includes shipping and tariffs for JLCPCB (the full checkout quote) and Elecrow.
 - Add roughly $45–70 for shipping from the other stores: Vetco, Adafruit, Seeed, Jameco, DigiKey, Waveshare and Laser by the Creek. Amazon is usually free over $35 or with Prime; Home Depot is store pickup.
 
@@ -56,7 +56,7 @@ BOM and CPL and are fitted by hand.
 |---|---|---|---|---|---|
 | U1 | ATtiny1616-MNR (VQFN-20, 3 × 3 mm) | [C507118](https://www.lcsc.com/product-detail/C507118.html) | Extended | 1 | 50 |
 | U2 | TI ULN2003ADR (SOIC-16, 3.9 mm narrow body) | [C7512](https://www.lcsc.com/product-detail/C7512.html) | Basic | 1 | 50 |
-| U3 | TI SN65HVD72DR RS-485 (SOIC-8, 3.9 mm narrow body) | [C48125](https://www.lcsc.com/product-detail/C48125.html) | Extended | 1 | 50 |
+| U3 | TI THVD1400DR RS-485, 3–5.5 V, 500 kbps (SOIC-8, 3.9 mm narrow body) | [C3235232](https://www.lcsc.com/product-detail/C3235232.html) | Extended | 1 | 50 |
 | U5 | MaxLinear SPX3819M5-L-3-3/TR, 3.3 V LDO (SOT-23-5) | [C9055](https://www.lcsc.com/product-detail/C9055.html) | Extended | 1 | 50 |
 | U6 | MaxLinear SPX3819M5-L-5-0/TR, 5 V LDO (SOT-23-5) | [C13417](https://www.lcsc.com/product-detail/C13417.html) | Extended | 1 | 50 |
 | F1 | Ruilon SMD1812P075TF/24 resettable fuse: 750 mA hold, 1.5 A trip, 24 V (1812) | [C12557](https://www.lcsc.com/product-detail/C12557.html) | Extended | 1 | 50 |
@@ -75,21 +75,22 @@ BOM and CPL and are fitted by hand.
 | J5 | 1×5 2.54 mm IO breakout header, **DNP** | – | – | – | – |
 | J2, J6, J7, J8 | Pogo-pin pads (+VBUS, GND, A, B), **DNP**. The pins are hand-soldered and counted in §3 | – | – | – | – |
 
-**JLCPCB order, driver boards alone (quote 2026-10-25), not yet placed.** The checkout quote with
-the §2 bus boards added comes to **$348.75**.
+**JLCPCB order, driver boards alone (quote 2026-10-25, adjusted for the U3 swap), not yet placed.** The checkout quote with
+the §2 bus boards added came to **$348.75** with the SN65HVD72DR; the THVD1400DR swap takes 50 × ($1.78 − $0.41) ≈ $68.38 off, so ≈ **$280.37**. Re-quote before ordering.
 
 | Item | Cost |
 |---|---|
-| Boards, parts, assembly and Extended-part fees, 50 assembled boards | $205.12 |
+| Boards, parts, assembly and Extended-part fees, 50 assembled boards | $136.74 |
 | Customs and duties | $71.80 |
 | Shipping | $45.00 |
 | Other checkout fees (the difference between the line items and the quoted checkout total) | $5.31 |
-| **Total (≈ $7.27 per needed board)** | **$327.23** |
+| **Total (≈ $5.75 per needed board)** | **$258.85** |
 
 Notes:
 - **Changes from V4:**
   - RS-485 moved to the ATtiny's hardware USART: TXD on PA1, RXD on PA2, DE/RE on PA4 (XDIR). The firmware must use `Serial.swap(1)`; firmware built for V4 (SoftwareSerial on PA5/PA6/PA7) won't talk on the bus.
   - U2 and U3 now use the narrow 3.9 mm SOIC footprints that match the parts JLCPCB places. V4 had 5.3 mm footprints.
+  - U3 changed from the SN65HVD72DR to the TI THVD1400DR (2026-10-28): same SOIC-8 pinout (R, /RE, DE, D, GND, A, B, VCC), failsafe, 1/8 unit load, ±16 V bus fault protection, about a quarter of the price. No layout or firmware change.
   - Added F1 (polyfuse) and D3 (reverse-polarity diode) in the 12 V input, R3 (DE/RE pull-down), R4 (RXD pull-up), and C10/C11 (decoupling).
   - R1 (0 Ω link) removed. R2 changed to 470 Ω; the LED runs at about 3 mA.
   - PC0 is tied to GND as a board ID. With `INPUT_PULLUP` it reads LOW on V5 and HIGH on V4 (floating), so one firmware can pick the right serial pins at boot. Never drive PC0 as an output.
