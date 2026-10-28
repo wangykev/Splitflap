@@ -26,10 +26,10 @@ Pack prices are rounded up to whole packs.
 | [7. LED perimeter strip](#7-led-perimeter-strip) | $38.37 |
 | [9. Case (plywood back, laser-cut acrylic)](#9-case) | ≈ $70.12 |
 | **Wall total (Kevin's hardware side)** | **≈ $775.99** |
-| [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $218.53 |
-| **Grand total** | **≈ $995** |
+| [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $224.43 |
+| **Grand total** | **≈ $1,000** |
 
-Realistic all-in budget: **≈ $1,040–1,065**, about $90–115 over the $950 the proposal asks for.
+Realistic all-in budget: **≈ $1,045–1,070**, about $95–120 over the $950 the proposal asks for.
 - The total above already includes shipping and tariffs for JLCPCB (the full checkout quote) and Elecrow.
 - Add roughly $45–70 for shipping from the other stores: Vetco, Adafruit, Seeed, Jameco, DigiKey, Waveshare and Laser by the Creek. Amazon is usually free over $35 or with Prime; Home Depot is store pickup.
 
@@ -175,11 +175,19 @@ An **external** 12 V brick: no mains wiring enters the case. The brick plugs int
 DC cable plugs into a panel jack on the case.
 
 **Load estimate:**
-- 45 steppers: about 7 A, only while flaps are moving. The firmware releases the coils after every move, so they draw nothing at rest.
-- WS2815 strip: 6–8 A at full white uncapped. The LED code caps it in software at **2 A** with FastLED's `setMaxPowerInVoltsAndMilliamps(12, 2000)`.
-- Gateway: under 1 A.
+- 45 steppers: about 7 A typical, 9 A worst case (45 × ~0.2 A), only while flaps are moving. The firmware releases the coils after every move, so they draw nothing at rest.
+- Driver logic and gateway: about 1.5 A.
+- WS2815 strip: 6–8 A at full white uncapped. It runs straight off the switched 12 V, with no fuse.
 
-That comes to about 10 A peak, for a few seconds while flaps move, and about 3 A most of the time. The 15 A brick runs at about 67% at peak.
+**LED cap:** the gateway gives the strip whatever the motors leave, to keep the 15 A brick under 12 A (80%):
+
+`LED cap = 10.5 A − 0.2 A × (modules moving)`, limited to the strip's ~7 A maximum
+
+- 0–17 modules moving: no dimming; the strip can run at full white.
+- All 45 moving: the cap drops to 1.5 A.
+- The gateway counts a module as moving from the moment it sends that module a move. It lowers the cap *before* sending, and raises it only after the move's expected time has passed, so the LEDs and motors never briefly overlap.
+
+**Calibrate the cap:** FastLED's `setMaxPowerInVoltsAndMilliamps` uses a power model for 5 V WS2812B LEDs, not WS2815. Measure the strip's current at full white and set the model with `setPowerModel()`, or the cap will be off.
 
 **Voltage at the modules:** 12.0 V from the brick, minus about 0.1 V (typical) to 0.4 V (peak) in its DC cable, minus the 0.3 V drop of each driver's D3 Schottky diode. That leaves about **11.25–11.6 V**, which is fine: the ULN2003 already drops about 1 V, and the 5 V regulator needs only about 5.4 V. No boost converter is needed. Don't extend the brick's DC cable; if you need more reach, extend the AC side.
 
@@ -231,7 +239,9 @@ The USB-RS485 dongle in the original Adam G BOM is **not needed**, because the g
 | Pi 5 case. Leave an opening above the Active Cooler's fan | [Adafruit #5816](https://www.adafruit.com/product/5816) ($12.00) | 1 | – | $0 | **3D-printing own** |
 | microSD, 32 GB or more, A1/A2, ideally an endurance card (HA writes constantly) | [PiShop.us SanDisk High Endurance](https://www.pishop.us/product/sandisk-high-endurance-microsdhc-card-32gb-blank/) ($29.95) | 1 | – | $0 | **Already have** |
 | Speaker, 8 Ω (later, for spoken replies; see note) | [Adafruit #3351](https://www.adafruit.com/product/3351) ($3.95) | 1 | – | $0 | **Already have** |
-| **Subtotal** | | | | **$218.53** | |
+| Ambient light sensor: VEML7700 lux sensor, I2C, STEMMA QT (see note) | [Adafruit #4162](https://www.adafruit.com/product/4162) | 1 | $4.95 | $4.95 | LIVE |
+| STEMMA QT to female-header cable, 150 mm (sensor to Pi GPIO header) | [Adafruit #4397](https://www.adafruit.com/product/4397) | 1 | $0.95 | $0.95 | LIVE |
+| **Subtotal** | | | | **$224.43** | |
 
 - **Speaker:** not needed now; the wall gives feedback through its LEDs. If spoken replies are added later:
   - Put a spare 8 Ω speaker next to the ReSpeaker on the floor, below the display.
@@ -239,6 +249,17 @@ The USB-RS485 dongle in the original Adam G BOM is **not needed**, because the g
   - The ReSpeaker's 3.5 mm jack can feed a JBL. The Pi 5 has no 3.5 mm jack. Test whether plugging into the jack mutes the JST speaker.
   - Nothing audio-related goes in the display.
   - Because the ReSpeaker plays the audio, its echo cancellation works.
+
+- **Ambient light → LED brightness:** the brighter the room, the brighter the LEDs.
+  - **Why this sensor:** a bare photodiode needs an analog input, which the Pi doesn't have. The VEML7700 measures lux itself and talks I2C, so it plugs straight into the Pi with no other parts.
+  - **Wiring:** Pi 3V3 (pin 1), SDA (GPIO2, pin 3), SCL (GPIO3, pin 5) and GND (pin 6). Enable I2C on the Pi.
+  - **Placement:** mount the sensor at the Pi, below the display, facing into the room. Point it away from the LED strip, or the strip's own light will brighten itself.
+  - **The 150 mm cable:** if the sensor needs to sit further away, about 1 m of 4-wire cable still works at the standard 100 kHz I2C speed.
+  - **Home Assistant (Jace):** HA has no built-in VEML7700 integration. Read it with a small script or add-on that publishes lux over MQTT, or with a custom integration.
+  - **Brightness curve:** an automation turns lux into a brightness level and sends it to the gateway.
+    - Eyes see brightness logarithmically, so map log(lux) to brightness. For example, about 10% at 10 lux, rising to 100% at 1,000 lux or more.
+    - Average the reading over about 30 s and add a little hysteresis, so passing shadows don't make the LEDs pump.
+  - **The power cap still wins:** the gateway uses the lower of the brightness from HA and the motor-budget cap in §6. A bright room never pushes the brick past its limit.
 
 Pi prices are high in 2026 because of the RAM shortage.
 
