@@ -16,20 +16,21 @@ Pack prices are rounded up to whole packs.
 
 | Section | Cost |
 |---|---|
-| [1. Driver PCBs V5, assembled by JLCPCB (50 boards)](#1-driver-pcb-jlcpcb-assembled) | $258.85 |
-| [2. Bus boards (15 bare PCBs, same JLCPCB order)](#2-bus-board) | $21.52 |
-| ↳ *JLCPCB quote for §1 + §2 together (adjusted for the U3 swap)* | *$280.37* |
+| [1. Driver PCBs V5, assembled by JLCPCB (50 boards)](#1-driver-pcb-jlcpcb-assembled) | in the JLCPCB order |
+| [2. Bus boards (15 bare PCBs)](#2-bus-board) | in the JLCPCB order |
+| Power board (5 boards, SMD parts assembled; see [§6](#6-power)) | in the JLCPCB order |
+| ↳ **JLCPCB checkout for all three (quote 2026-10-28, final checkout incl. shipping and tariffs)** | **$369.57** |
 | [3. Module hardware (45 modules)](#3-module-hardware-45-modules) | $237.66 |
 | [4. Programming (UPDI flasher)](#4-programming-updi-flasher) | incl. above |
 | [5. Gateway & RS-485 bus](#5-gateway--rs-485-bus) | $18.99 |
 | [6. Power](#6-power) | $62.10 |
 | [7. LED perimeter strip](#7-led-perimeter-strip) | $38.37 |
 | [9. Case (plywood back, laser-cut acrylic)](#9-case) | ≈ $70.12 |
-| **Wall total (Kevin's hardware side)** | **≈ $707.61** |
+| **Wall total (Kevin's hardware side)** | **≈ $796.81** |
 | [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $224.43 |
-| **Grand total** | **≈ $932** |
+| **Grand total** | **≈ $1,021** |
 
-Realistic all-in budget: **≈ $977–1,002**, about $27–52 over the $950 the proposal asks for.
+Realistic all-in budget: **≈ $1,066–1,091**, about $116–141 over the $950 the proposal asks for.
 - The total above already includes shipping and tariffs for JLCPCB (the full checkout quote) and Elecrow.
 - Add roughly $45–70 for shipping from the other stores: Vetco, Adafruit, Seeed, Jameco, DigiKey, Waveshare and Laser by the Creek. Amazon is usually free over $35 or with Prime; Home Depot is store pickup.
 
@@ -75,8 +76,9 @@ BOM and CPL and are fitted by hand.
 | J5 | 1×5 2.54 mm IO breakout header, **DNP** | – | – | – | – |
 | J2, J6, J7, J8 | Pogo-pin pads (+VBUS, GND, A, B), **DNP**. The pins are hand-soldered and counted in §3 | – | – | – | – |
 
-**JLCPCB order, driver boards alone (quote 2026-10-25, adjusted for the U3 swap), not yet placed.** The checkout quote with
-the §2 bus boards added came to **$348.75** with the SN65HVD72DR; the THVD1400DR swap takes 50 × ($1.78 − $0.41) ≈ $68.38 off, so ≈ **$280.37**. Re-quote before ordering.
+**JLCPCB order (not yet placed).** The checkout quote of 2026-10-28 for the 50 driver boards (with the THVD1400DR), the 15 bus boards
+and 5 assembled power boards together is **$369.57**, the final checkout price including shipping and tariffs; nothing is added on top. That is the figure used in the cost summary.
+The table below is the older driver-only breakdown (quote 2026-10-25, adjusted by hand for the U3 swap), kept for reference.
 
 | Item | Cost |
 |---|---|
@@ -171,6 +173,8 @@ cm of thin wire and superglue.
 | **Subtotal** | | | | **$18.99** | |
 
 ## 6. Power
+
+**Power board** (`PCBs/power-board/`): 5 boards from JLCPCB with the SMD parts assembled, in the same order as §1 and §2 (its cost is inside the $369.57 checkout). The DIN jack, the 1000 µF capacitor and the wires are hand-soldered.
 
 An **external** 12 V brick: no mains wiring enters the case. The brick plugs into the wall, and its
 DC cable plugs into a panel jack on the case.
