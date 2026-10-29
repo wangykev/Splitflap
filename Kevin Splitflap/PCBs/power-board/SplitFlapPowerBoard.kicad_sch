@@ -294,6 +294,174 @@
 			(embedded_fonts no)
 		)
 		(symbol
+			"Device:NetTie_2"
+			(pin_numbers
+				(hide yes)
+			)
+			(pin_names
+				(offset 0)
+				(hide yes)
+			)
+			(exclude_from_sim no)
+			(in_bom no)
+			(on_board yes)
+			(in_pos_files yes)
+			(duplicate_pin_numbers_are_jumpers no)
+			(property
+				"Reference"
+				"NT"
+				(at 0 1.27 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property
+				"Value"
+				"NetTie_2"
+				(at 0 -1.27 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property
+				"Footprint"
+				""
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property
+				"Datasheet"
+				""
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property
+				"Description"
+				"Net tie, 2 pins"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property
+				"ki_keywords"
+				"net tie short"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property
+				"ki_fp_filters"
+				"Net*Tie*"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(symbol
+				"NetTie_2_0_1"
+				(polyline
+					(pts
+						(xy -1.27 0)
+						(xy 1.27 0)
+					)
+					(stroke
+						(width 0.254)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+			)
+			(symbol
+				"NetTie_2_1_1"
+				(pin
+					passive
+					line
+					(at -2.54 0 0)
+					(length 2.54)
+					(name
+						"1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number
+						"1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin
+					passive
+					line
+					(at 2.54 0 180)
+					(length 2.54)
+					(name
+						"2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number
+						"2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
+		(symbol
 			"Device:D_Zener"
 			(pin_numbers
 				(hide yes)
@@ -2790,7 +2958,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "3ba96290-a76b-4e80-b9f7-f5b725254134")
+		(uuid "413d6f96-146b-4072-ae0c-f967fa24b179")
 	)
 	(wire
 		(pts
@@ -2801,7 +2969,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "6ba24c51-583a-42b4-a0ed-c65c71ac0a1a")
+		(uuid "0576823f-8a0b-449d-ae4a-4339a1a578b9")
 	)
 	(wire
 		(pts
@@ -2812,7 +2980,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "c02a0fd9-6c17-40eb-81e7-6f8661a8c6c5")
+		(uuid "685db947-d4cd-463c-8e8d-a119d98ed572")
 	)
 	(wire
 		(pts
@@ -2823,7 +2991,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "c67a694f-b3b3-4d07-80a5-d9d31a942ea3")
+		(uuid "e2504fce-00c3-4816-bd85-9c3a38dfa77d")
 	)
 	(wire
 		(pts
@@ -2834,7 +3002,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "3cac2451-69de-498a-9e6f-ba17b4821356")
+		(uuid "7599b7d2-50d4-4f00-a0d9-69347075790f")
 	)
 	(wire
 		(pts
@@ -2845,7 +3013,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "6f85d1ce-d32f-4599-ade4-7de6f22f3c19")
+		(uuid "5bd396a0-ce60-4fc4-afea-8e35bea847cc")
 	)
 	(wire
 		(pts
@@ -2856,7 +3024,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "f00f9c7b-2eab-462b-8339-d92d20c91ce4")
+		(uuid "2dd321cb-eabf-4b0b-8c39-54d0fbf29993")
 	)
 	(wire
 		(pts
@@ -2867,7 +3035,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "f52fa439-ffb9-4e86-8aa2-0a1e694713e2")
+		(uuid "4acd697b-9e10-437d-b7fb-7c6cc056723b")
 	)
 	(wire
 		(pts
@@ -2878,7 +3046,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "b16d2ed2-912d-4708-a24c-59cefe84340c")
+		(uuid "f96e9c7f-5d37-46ed-a1f1-d82b3b820821")
 	)
 	(wire
 		(pts
@@ -2889,7 +3057,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "09f8eeb6-475e-40fb-a6bd-12b2c5140238")
+		(uuid "90c19b14-f386-4c1c-ac1d-69113c2c11c9")
 	)
 	(label
 		"LED_DATA_3V3"
@@ -2900,13 +3068,13 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "3f7f2b66-ef11-4327-8a2c-3993dd63dd66")
+		(uuid "3cf5a5c3-3021-44c4-bd3c-3250c3abc53b")
 	)
 	(junction
 		(at 76.2 170.18)
 		(diameter 0)
 		(color 0 0 0 0)
-		(uuid "b6d88d0c-10d6-4c9c-b333-d68bc82ce1c9")
+		(uuid "72f3f1f0-ad73-425b-8eba-0fb0b768917e")
 	)
 	(symbol
 		(lib_id "Connector_Generic:Conn_01x05")
@@ -2916,7 +3084,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "d0f96a29-4286-4eb8-9b2d-0a229bcdfea6")
+		(uuid "23ba29f0-6f7c-48c8-85ff-869ead8eb551")
 		(property
 			"Reference"
 			"J1"
@@ -2961,7 +3129,7 @@
 		)
 		(property
 			"Description"
-			"Kycon 4-pin power DIN jack, PCB mount, on the board edge. Mates with the Mean Well R7B (KPPX-4P) plug: pins 1+4 = +V, 2+3 = -V. Pin 5 = shield"
+			"Kycon 4-pin power DIN jack, PCB mount, body on the board edge. Kycon pin numbers. Expected with a Mean Well R7B plug (its own numbering differs): 2+4 = +V, 1+3 = -V. NT1/NT2 make that connection and can be cut if the plug turns out reversed. Pin 5 = shield"
 			(at 40.64 66.04 0)
 			(effects
 				(font
@@ -2972,23 +3140,23 @@
 		)
 		(pin
 			"1"
-			(uuid "6ea16a4a-46eb-48e0-b466-b962ae8aa1c2")
+			(uuid "1ab60540-2f14-4ea3-8a39-da124a22090c")
 		)
 		(pin
 			"2"
-			(uuid "969fc9fa-0c77-4bf1-81c4-49870a14fb98")
+			(uuid "49045328-5e8c-4d19-9d78-2d00208d8e72")
 		)
 		(pin
 			"3"
-			(uuid "d8bd88b7-597f-45da-a744-35d6c72e7372")
+			(uuid "38ca0594-24ae-4d80-bcd9-4483d705bc2a")
 		)
 		(pin
 			"4"
-			(uuid "7f96ef77-8309-4544-ab12-90bd072940dc")
+			(uuid "b13df2a1-acfb-4b78-b100-bde0f92c6d8b")
 		)
 		(pin
 			"5"
-			(uuid "5f8a60e5-b249-426a-a4ed-6a64ded15c2d")
+			(uuid "4fea4b46-ac7e-43c4-b3b4-226b3851ab69")
 		)
 		(instances
 			(project
@@ -3010,10 +3178,10 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "0b4046cf-1b05-4996-84f9-cfd04a9d0a4f")
+		(uuid "943f5b31-0757-4b29-8967-a2c34a9048a7")
 	)
 	(label
-		"+12V_IN"
+		"JACK_13"
 		(at 33.02 60.96 180)
 		(effects
 			(font
@@ -3021,7 +3189,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "488d3954-65ef-46be-b373-451709498203")
+		(uuid "ebd255bc-19fe-4bf2-8658-baabe8de1476")
 	)
 	(wire
 		(pts
@@ -3032,10 +3200,10 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "5106a2e1-8582-48ed-8bcd-f50ee37754d7")
+		(uuid "560927ec-017c-4bb2-b1df-52e7f5232de9")
 	)
 	(label
-		"GND"
+		"JACK_24"
 		(at 33.02 63.5 180)
 		(effects
 			(font
@@ -3043,7 +3211,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "8ae09774-ef6f-4f4a-b337-c514a46cd1fd")
+		(uuid "f7b5aae9-ab9d-45da-b7d4-93c0e06a70aa")
 	)
 	(wire
 		(pts
@@ -3054,10 +3222,10 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "ac7c7fee-5a86-4c24-9d43-a203472b61b5")
+		(uuid "7517c752-66f4-4278-b18b-f0aeadc37c43")
 	)
 	(label
-		"GND"
+		"JACK_13"
 		(at 33.02 66.04 180)
 		(effects
 			(font
@@ -3065,7 +3233,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "7813ce08-373d-4b97-94db-5e0479b05fab")
+		(uuid "cfff173b-c7b8-46a7-8508-f2366c64e1cf")
 	)
 	(wire
 		(pts
@@ -3076,10 +3244,10 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "8b591e2d-d3fa-45e0-a7d6-9e827d7be7ab")
+		(uuid "90f307e6-d6f4-4652-8d94-6297b2995862")
 	)
 	(label
-		"+12V_IN"
+		"JACK_24"
 		(at 33.02 68.58 180)
 		(effects
 			(font
@@ -3087,7 +3255,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "b7217c5a-ff40-4087-805a-f415f405e53c")
+		(uuid "41f50043-3f1e-4022-b0a1-cf18a9706018")
 	)
 	(wire
 		(pts
@@ -3098,7 +3266,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "44aeeda3-ddc1-4292-98da-2a1961590b8d")
+		(uuid "8a166db6-b187-4025-87ba-e58e528f7bcd")
 	)
 	(label
 		"GND"
@@ -3109,7 +3277,257 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "fabb03c1-9d0a-43ca-bd49-dbf79d5f5b1f")
+		(uuid "b7d7f316-44ba-43d1-8cb8-7bbc036f31fe")
+	)
+	(symbol
+		(lib_id "Device:NetTie_2")
+		(at 40.64 91.44 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "ab35ff12-a505-4b1b-a773-ec7bcd84c0b4")
+		(property
+			"Reference"
+			"NT1"
+			(at 40.64 85.09 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property
+			"Value"
+			"CUT IF REVERSED"
+			(at 40.64 97.79 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property
+			"Footprint"
+			"PowerBoard:CutLink_Holes_P6mm"
+			(at 40.64 91.44 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property
+			"Datasheet"
+			"~"
+			(at 40.64 91.44 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property
+			"Description"
+			"Jack pins 2+4 -> +12V_IN: copper bridge between two 16 AWG solder holes. If the plug is reversed, cut NT1 and NT2, then wire NT2.1 -> NT1.2 (+12V) and NT1.1 -> NT2.2 (GND)"
+			(at 40.64 91.44 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin
+			"1"
+			(uuid "0ebba97e-85f6-4292-9370-1e21893012a1")
+		)
+		(pin
+			"2"
+			(uuid "307c290b-02f8-4022-9b61-35c110aa392a")
+		)
+		(instances
+			(project
+				"SplitFlapPowerBoard"
+				(path
+					"/2c93fcc5-af10-4561-8eda-d0a916acd0b5"
+					(reference "NT1")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(wire
+		(pts
+			(xy 38.1 91.44)
+			(xy 35.56 91.44)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "64dd9372-5b7e-4f11-8fbd-e16b5355b270")
+	)
+	(label
+		"JACK_24"
+		(at 35.56 91.44 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right bottom)
+		)
+		(uuid "10fd6eb3-8c6d-45d2-a62c-79a2f5e4011f")
+	)
+	(wire
+		(pts
+			(xy 43.18 91.44)
+			(xy 45.72 91.44)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "16cd9b4a-403b-4a20-8b86-a899e53dea4e")
+	)
+	(label
+		"+12V_IN"
+		(at 45.72 91.44 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "fd320a01-2b76-41c3-8ff3-10c0d9b64fa8")
+	)
+	(symbol
+		(lib_id "Device:NetTie_2")
+		(at 40.64 101.6 0)
+		(unit 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(dnp no)
+		(uuid "c368e9f4-e1e5-4e9f-9243-7f99183ef0e4")
+		(property
+			"Reference"
+			"NT2"
+			(at 40.64 95.25 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property
+			"Value"
+			"CUT IF REVERSED"
+			(at 40.64 107.95 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property
+			"Footprint"
+			"PowerBoard:CutLink_Holes_P6mm"
+			(at 40.64 101.6 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property
+			"Datasheet"
+			"~"
+			(at 40.64 101.6 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(property
+			"Description"
+			"Jack pins 1+3 -> GND: copper bridge between two 16 AWG solder holes"
+			(at 40.64 101.6 0)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(hide yes)
+			)
+		)
+		(pin
+			"1"
+			(uuid "e8b08de7-d0e4-4324-b518-954f819b1812")
+		)
+		(pin
+			"2"
+			(uuid "df8a026f-6d2b-483a-9dee-cf0c512364cf")
+		)
+		(instances
+			(project
+				"SplitFlapPowerBoard"
+				(path
+					"/2c93fcc5-af10-4561-8eda-d0a916acd0b5"
+					(reference "NT2")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(wire
+		(pts
+			(xy 38.1 101.6)
+			(xy 35.56 101.6)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "18f874f0-446f-4a65-abf4-44e63ff12a3f")
+	)
+	(label
+		"JACK_13"
+		(at 35.56 101.6 180)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify right bottom)
+		)
+		(uuid "3a11410d-e0bb-4edf-adc6-eaef8bc12a42")
+	)
+	(wire
+		(pts
+			(xy 43.18 101.6)
+			(xy 45.72 101.6)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "3ac70d33-1f70-419c-b8b7-59dd90c23ff3")
+	)
+	(label
+		"GND"
+		(at 45.72 101.6 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "5e683b8c-0b44-4543-ae6a-d095dd0392f1")
 	)
 	(symbol
 		(lib_id "Device:D_Zener")
@@ -3119,7 +3537,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "13584905-60d1-4168-9cee-e93bbdd1f2b7")
+		(uuid "ffdd3d68-9431-4ce3-8a58-09eb97e3d506")
 		(property
 			"Reference"
 			"D1"
@@ -3186,11 +3604,11 @@
 		)
 		(pin
 			"1"
-			(uuid "1af87871-b633-429f-bf38-84494ebdfcb1")
+			(uuid "b07ccf7f-5810-431f-9ac1-49c59e1b3859")
 		)
 		(pin
 			"2"
-			(uuid "aaaf4267-fc42-4371-af8a-340b54d8eda3")
+			(uuid "270ed09c-2e2b-42bb-9c67-7ded92c6f0f0")
 		)
 		(instances
 			(project
@@ -3212,7 +3630,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "d14799ec-c322-4667-8a1f-f9019857b847")
+		(uuid "54a6e03b-b327-4689-b5a6-6000cf6249f2")
 	)
 	(label
 		"+12V_IN"
@@ -3223,7 +3641,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "5f2ded80-4c11-4353-a482-0fa65b2d5661")
+		(uuid "073914be-026a-4736-b4d0-34f1cc64c90f")
 	)
 	(wire
 		(pts
@@ -3234,7 +3652,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "31e63a10-8781-45b2-90f6-203fb539ca5f")
+		(uuid "81c29382-acfb-4d3a-bae6-f10f5ee1584d")
 	)
 	(label
 		"GND"
@@ -3245,7 +3663,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "de6d9dfc-9fff-459d-921a-b845e1f7b321")
+		(uuid "64f223c0-d572-4343-90d8-72093332068f")
 	)
 	(symbol
 		(lib_id "Device:C")
@@ -3255,7 +3673,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "fe723102-87d8-4c64-835a-46df3c6d23a2")
+		(uuid "aeed6429-7d65-4666-908e-78516e4062a4")
 		(property
 			"Reference"
 			"C2"
@@ -3324,11 +3742,11 @@
 		)
 		(pin
 			"1"
-			(uuid "e1c79157-eb57-4f6e-8841-95a53f38a08c")
+			(uuid "0502f9d4-0481-435a-bed3-a1e56490a5e6")
 		)
 		(pin
 			"2"
-			(uuid "a8ee6db8-1b29-4d1f-b1df-5006c00a368e")
+			(uuid "2c637636-0301-400d-a808-f1374a2f7cc3")
 		)
 		(instances
 			(project
@@ -3350,7 +3768,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "3d8d1124-269f-48ab-89aa-99d8bd652710")
+		(uuid "9b05af6e-6bcb-4cb8-a751-7c16d0b6acc4")
 	)
 	(label
 		"+12V_IN"
@@ -3361,7 +3779,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "ce2ee22a-9296-4d02-8fc4-5086b61f6084")
+		(uuid "d73a14cb-7ba0-483b-8796-b414e904c441")
 	)
 	(wire
 		(pts
@@ -3372,7 +3790,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "7ab359e3-251b-4f42-b393-cb46a1fdc6bd")
+		(uuid "c4057ee6-1295-4d24-94d9-b9b08947bcd7")
 	)
 	(label
 		"GND"
@@ -3383,7 +3801,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "3d6e3fc6-880f-48dc-86f6-d4b194ff8ab5")
+		(uuid "d3316ca3-55a0-4041-af17-74a88c20d877")
 	)
 	(symbol
 		(lib_id "Connector_Generic:Conn_01x02")
@@ -3393,7 +3811,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "38eb00fa-9cbb-4da2-ac10-9d71aa9884a9")
+		(uuid "3dd7d783-0ffa-4fc9-8768-d3a3f44f2d2b")
 		(property
 			"Reference"
 			"J10"
@@ -3449,11 +3867,11 @@
 		)
 		(pin
 			"1"
-			(uuid "db1c073f-c8a1-424d-9ac8-309086ed12f5")
+			(uuid "6281652f-93dd-4b45-9752-873aa9f0161a")
 		)
 		(pin
 			"2"
-			(uuid "a205a37f-d472-401f-a006-b5d56e1ae802")
+			(uuid "03ae2185-4813-4c68-b108-792a553e1f9e")
 		)
 		(instances
 			(project
@@ -3475,7 +3893,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "73466949-0d36-47dd-b920-db37f0e2a1dd")
+		(uuid "e1e54bcd-bb1c-4dc6-a255-d66c0e71f7c2")
 	)
 	(label
 		"+12V_IN"
@@ -3486,7 +3904,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "88bfae24-463d-4b92-b394-c75f2924ee57")
+		(uuid "e85d2f62-91b3-4f2d-956e-3964f2bd64d3")
 	)
 	(wire
 		(pts
@@ -3497,7 +3915,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "9321ae16-5707-4df2-8bb7-f149c542fc18")
+		(uuid "594b3c6a-0e93-4b97-beb8-e3078f52bfe6")
 	)
 	(label
 		"+12V"
@@ -3508,7 +3926,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "a0419429-69f7-4b95-8c6a-1eab78953945")
+		(uuid "dcb833aa-246e-4743-b54a-0fe3545e71da")
 	)
 	(symbol
 		(lib_id "Device:C_Polarized")
@@ -3518,7 +3936,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "f138c10f-6794-4516-8e73-e2ba4d19d32b")
+		(uuid "4be81f63-4d63-4092-b51c-c42fa3c05398")
 		(property
 			"Reference"
 			"C1"
@@ -3576,11 +3994,11 @@
 		)
 		(pin
 			"1"
-			(uuid "525ea861-f22e-4d52-82e3-c9bc692dd6b1")
+			(uuid "40a4f2d2-1000-42a9-a07b-8edd71da69aa")
 		)
 		(pin
 			"2"
-			(uuid "8b0763dc-9368-45bf-960c-2a7db452e595")
+			(uuid "059b7224-0789-47e5-921c-bd6ddb4a0cf8")
 		)
 		(instances
 			(project
@@ -3602,7 +4020,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "5f5bd31f-9690-4385-bdbb-22f23c0327ff")
+		(uuid "c68d7586-b10c-4812-865d-f5228e3ec5a8")
 	)
 	(label
 		"+12V"
@@ -3613,7 +4031,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "89860a63-b018-49db-a7ac-85ab88867508")
+		(uuid "e5263d45-2646-4b25-96e7-34f67a76989b")
 	)
 	(wire
 		(pts
@@ -3624,7 +4042,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "1a5eaa5e-b662-4a93-9071-f1bfebf8dd03")
+		(uuid "5d130d66-0e87-42fd-9c02-ffef4b7909f7")
 	)
 	(label
 		"GND"
@@ -3635,7 +4053,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "e0fca3e5-194b-4ffd-807d-83c00e096d20")
+		(uuid "a469295b-0364-4026-a1b0-4d906bb6d9b5")
 	)
 	(symbol
 		(lib_id "Device:R")
@@ -3645,7 +4063,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "0bd017dd-537c-49eb-924e-6cd7ebe4bfdf")
+		(uuid "0076f84d-5e8e-4178-9ef1-02fb0ae60e3e")
 		(property
 			"Reference"
 			"R1"
@@ -3714,11 +4132,11 @@
 		)
 		(pin
 			"1"
-			(uuid "ed4641df-6042-4d9a-8dc0-5bc674d530a8")
+			(uuid "b6679d8d-f54b-40b2-8113-6f5aae813e67")
 		)
 		(pin
 			"2"
-			(uuid "0d321d3a-171f-4f4a-aca6-c5534949b671")
+			(uuid "8651b1c3-ccb3-43be-8b35-9966ec0051d0")
 		)
 		(instances
 			(project
@@ -3740,7 +4158,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "bdba6aed-a87b-41a5-8736-f49fc3d52b9a")
+		(uuid "64c4f09b-4c8d-4952-99ea-fa43edb4743e")
 	)
 	(label
 		"+12V"
@@ -3751,7 +4169,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "aa87af6a-1a08-4318-93ad-12445c53fae9")
+		(uuid "7ec2f202-b41b-4396-9837-30d4d787b7d5")
 	)
 	(symbol
 		(lib_id "Device:LED")
@@ -3761,7 +4179,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "00f7d9da-9e50-48e7-9945-9637fca3eff0")
+		(uuid "c52ac966-b312-4fb2-b7ca-d92790dab9f6")
 		(property
 			"Reference"
 			"D2"
@@ -3828,11 +4246,11 @@
 		)
 		(pin
 			"1"
-			(uuid "5458f872-41bd-4f3c-91fc-bf902c099e94")
+			(uuid "9abdf203-c8e0-4477-bbec-3733699b57a9")
 		)
 		(pin
 			"2"
-			(uuid "62c5c73e-e48f-4b77-a15d-0192dcce743c")
+			(uuid "7b799566-e0be-4ee3-a7c0-b7b4c43c5493")
 		)
 		(instances
 			(project
@@ -3854,7 +4272,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "e7d39aa2-c5bb-441b-b48e-3b5bdac1266d")
+		(uuid "d3d00162-35aa-4f9a-b592-2f87a645dad0")
 	)
 	(label
 		"GND"
@@ -3865,7 +4283,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "393ebb2a-e993-4fd2-a361-ff450cb29641")
+		(uuid "103c1998-f73a-4e99-a05e-4df5665b4462")
 	)
 	(symbol
 		(lib_id "Device:Polyfuse")
@@ -3875,7 +4293,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "8c34d9b2-8b41-4645-8c7e-22c0bbc288f2")
+		(uuid "b37b0f89-a83f-4f60-b809-ff291792678f")
 		(property
 			"Reference"
 			"F1"
@@ -3944,11 +4362,11 @@
 		)
 		(pin
 			"1"
-			(uuid "bb39f226-6180-458f-b484-32d3c6a28993")
+			(uuid "40496b10-882d-493a-9df2-9ee4ed66ab75")
 		)
 		(pin
 			"2"
-			(uuid "49c2dba5-32fa-40b4-b9d5-c424ea9b78d5")
+			(uuid "d810bfa4-365f-4e23-bb1a-1fdbbf69175c")
 		)
 		(instances
 			(project
@@ -3970,7 +4388,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "358bacfd-2782-4408-be19-9b786450836d")
+		(uuid "ae81bbc2-1ba8-487c-b87d-6345ca205feb")
 	)
 	(label
 		"+12V"
@@ -3981,7 +4399,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "13be31c4-9759-4ba6-b233-b6aa491238c6")
+		(uuid "5f5f1fec-cc1b-47db-8859-3e226c354485")
 	)
 	(wire
 		(pts
@@ -3992,7 +4410,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "0c79813e-c3c3-4a87-a15b-736b46212dab")
+		(uuid "70043ba6-86b7-4422-9cca-325e3f1a50f3")
 	)
 	(label
 		"+12V_ROW1"
@@ -4003,7 +4421,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "42d10b8d-678b-4b99-929c-e7b1a6facb54")
+		(uuid "5f8edfdb-e31e-42b3-b946-67b83413e1e1")
 	)
 	(symbol
 		(lib_id "Device:R")
@@ -4013,7 +4431,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "3bfe4ceb-26a2-4238-ac5a-1de26f9b0556")
+		(uuid "6477ed8b-b91b-4b86-bd01-6249a0227fb3")
 		(property
 			"Reference"
 			"R2"
@@ -4082,11 +4500,11 @@
 		)
 		(pin
 			"1"
-			(uuid "1840711d-4287-4a9f-982a-44390adf7a41")
+			(uuid "ad10b435-8186-41ea-beec-f2cb3b4b90d2")
 		)
 		(pin
 			"2"
-			(uuid "6e338706-7df6-401b-ae0d-fc93783fa202")
+			(uuid "78f81d93-bf0a-4067-812d-932fe9f6b128")
 		)
 		(instances
 			(project
@@ -4108,7 +4526,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "84ef6eb8-af94-46f4-881c-17e57430908f")
+		(uuid "721c2b32-6ef5-4dc7-b1f3-3ff758175108")
 	)
 	(label
 		"+12V_ROW1"
@@ -4119,7 +4537,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "4f155b64-7508-46f8-9cd0-32cf969e7965")
+		(uuid "52b9ea5c-30e9-42b7-bacc-a6fa26bb75f2")
 	)
 	(symbol
 		(lib_id "Device:LED")
@@ -4129,7 +4547,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "a2ca884f-f03d-4259-b345-880def0d5820")
+		(uuid "74109e46-abfd-4087-a60d-b1ae15d403e8")
 		(property
 			"Reference"
 			"D3"
@@ -4196,11 +4614,11 @@
 		)
 		(pin
 			"1"
-			(uuid "71fe7e49-38b7-4bac-a66d-1d92d369ba84")
+			(uuid "8b208b3e-c218-4e0f-96e4-9f53b235e665")
 		)
 		(pin
 			"2"
-			(uuid "8751ff26-f1eb-444b-afb0-fd611434a588")
+			(uuid "ffe077e7-0b14-4735-9d26-aa8c6793fecb")
 		)
 		(instances
 			(project
@@ -4222,7 +4640,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "c4538ddb-53df-4fbb-aaa8-252e40c53abc")
+		(uuid "11ec7a67-333c-4704-8920-0f105babd45a")
 	)
 	(label
 		"GND"
@@ -4233,7 +4651,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "b4a64f97-d3a7-4eab-9e77-f455162a30bf")
+		(uuid "30a21e7b-8481-4621-b7dd-f4567e929c1b")
 	)
 	(symbol
 		(lib_id "Device:Polyfuse")
@@ -4243,7 +4661,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "e7eff82e-d67c-400a-a1c1-c488cdf71b28")
+		(uuid "51d9ff89-ebdf-4b36-b877-0bddd2acf3fb")
 		(property
 			"Reference"
 			"F2"
@@ -4312,11 +4730,11 @@
 		)
 		(pin
 			"1"
-			(uuid "de942100-fc6b-4d08-aa84-353e6aed80d0")
+			(uuid "5dfb8d9a-1d3a-401e-875e-e593d0fbb1f0")
 		)
 		(pin
 			"2"
-			(uuid "106e9ed4-464f-42cf-8ba5-10102d363b8f")
+			(uuid "7c90af0f-55d7-4dbb-80a7-ff743ea17536")
 		)
 		(instances
 			(project
@@ -4338,7 +4756,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "03561a5a-0d0c-4b3b-8766-d2f61a3c7815")
+		(uuid "44874488-72db-4853-913e-357a13320e9f")
 	)
 	(label
 		"+12V"
@@ -4349,7 +4767,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "f28f50d5-e13a-4749-a6d3-fabd65cd5dae")
+		(uuid "1fee3f6c-b421-4069-bce7-3dbadfbf842b")
 	)
 	(wire
 		(pts
@@ -4360,7 +4778,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "5470fa99-64f5-415e-a6b8-726d234b89b8")
+		(uuid "6e77e3ca-a678-4233-8af6-017c72cb95fc")
 	)
 	(label
 		"+12V_ROW2"
@@ -4371,7 +4789,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "ae59b255-ebc0-4093-acbd-a147f30a2ea0")
+		(uuid "1a603306-982b-4b48-b9f2-79cd2690ac26")
 	)
 	(symbol
 		(lib_id "Device:R")
@@ -4381,7 +4799,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "cd67f961-e8e2-4943-89be-5a2766313c3a")
+		(uuid "e23e3d1f-0adb-4bec-bd48-82946e2cb6f2")
 		(property
 			"Reference"
 			"R3"
@@ -4450,11 +4868,11 @@
 		)
 		(pin
 			"1"
-			(uuid "f24f2e13-dbd3-4f78-958b-8977eb727694")
+			(uuid "86b6f413-241d-4716-8950-198ecd9c59d8")
 		)
 		(pin
 			"2"
-			(uuid "4fa2a72a-aa15-4c1a-8b77-653c06d376cb")
+			(uuid "b9f98e3f-d6a8-4db6-8276-078c3075d5bc")
 		)
 		(instances
 			(project
@@ -4476,7 +4894,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "2676aad3-553c-487b-bb7b-0c329e27fa4a")
+		(uuid "570a6384-fd30-4169-b810-654e48c8e55e")
 	)
 	(label
 		"+12V_ROW2"
@@ -4487,7 +4905,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "115db028-2324-4016-ad1c-4225822621ba")
+		(uuid "d72f8f4c-2f04-41d8-abe3-c3d9984e92d8")
 	)
 	(symbol
 		(lib_id "Device:LED")
@@ -4497,7 +4915,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "d33caf41-2c85-46f2-bbe1-387bd52c7241")
+		(uuid "2e5236a4-362c-4c03-a07b-20e22812bc8e")
 		(property
 			"Reference"
 			"D4"
@@ -4564,11 +4982,11 @@
 		)
 		(pin
 			"1"
-			(uuid "b8224ad1-a084-448b-82b1-8af8464405e0")
+			(uuid "a46a8d15-c3e8-4e31-97f2-75904ec2c824")
 		)
 		(pin
 			"2"
-			(uuid "15186081-9a33-4739-b694-720cfc2f2b1e")
+			(uuid "75091a75-eb8d-4feb-aea2-5ac71ce9fbb0")
 		)
 		(instances
 			(project
@@ -4590,7 +5008,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "f112ffbe-712a-4686-99d5-53024ce3bb56")
+		(uuid "54f97def-feb9-4b7a-881e-175a41fa1403")
 	)
 	(label
 		"GND"
@@ -4601,7 +5019,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "a7fc9171-63c0-4998-b1f1-190356163063")
+		(uuid "f5671583-9f40-4153-ab80-eaf5fd51e24b")
 	)
 	(symbol
 		(lib_id "Device:Polyfuse")
@@ -4611,7 +5029,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "41f88b94-fa72-4219-988a-615a4a5f1e3f")
+		(uuid "2a73f081-81f7-4f07-8f21-ccafef4abedb")
 		(property
 			"Reference"
 			"F3"
@@ -4680,11 +5098,11 @@
 		)
 		(pin
 			"1"
-			(uuid "5129fed3-5dd3-41e1-b565-4cf60830845a")
+			(uuid "ce51a4c5-a1df-4bf6-9687-4f07b1cd3323")
 		)
 		(pin
 			"2"
-			(uuid "3ee61a12-afa1-489c-a8c7-8ad231ec282c")
+			(uuid "b1f43e74-730c-48b5-83b3-1e639610eb2b")
 		)
 		(instances
 			(project
@@ -4706,7 +5124,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "6f3230c9-3aef-46d9-9a77-7526ae902ed0")
+		(uuid "2089d40f-5fe3-4397-8ad3-5a9e296e4468")
 	)
 	(label
 		"+12V"
@@ -4717,7 +5135,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "6a17c063-d0f7-4c3e-a7aa-e8dc5c63db17")
+		(uuid "91a4b573-5c9e-4f89-a6aa-cfda39ca7629")
 	)
 	(wire
 		(pts
@@ -4728,7 +5146,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "e2e451a0-e9d9-4214-9512-a73f1f8093d7")
+		(uuid "c7aee883-00ea-4585-a0ac-97f0648f2a39")
 	)
 	(label
 		"+12V_ROW3"
@@ -4739,7 +5157,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "21a2285b-17fd-4c8c-8d4b-9217ca526d24")
+		(uuid "17d9b6a7-2d6e-47b9-85ea-2d8b0e023ae0")
 	)
 	(symbol
 		(lib_id "Device:R")
@@ -4749,7 +5167,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "340634b9-e560-4575-b4f7-c8483f80ca67")
+		(uuid "cb1c1e36-a955-4197-bf7c-d9f763d19696")
 		(property
 			"Reference"
 			"R4"
@@ -4818,11 +5236,11 @@
 		)
 		(pin
 			"1"
-			(uuid "030cff4a-29f7-403c-9a34-84c55d2112b7")
+			(uuid "5684fd93-f4c0-4b2d-bb41-135240b37227")
 		)
 		(pin
 			"2"
-			(uuid "677c1adf-9a10-4f2f-89d1-05c6961ca0a3")
+			(uuid "55e85f18-88f0-44c0-9988-8d0eb1fb44fb")
 		)
 		(instances
 			(project
@@ -4844,7 +5262,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "d0b386b2-3106-438c-9f09-1d576917157d")
+		(uuid "24c64693-b960-44d3-936d-63ba2c741381")
 	)
 	(label
 		"+12V_ROW3"
@@ -4855,7 +5273,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "f79c3a02-a0a9-4284-a6f3-44cd2fa6d20b")
+		(uuid "fb8c2236-034d-441c-bac2-dfb6f96afd8c")
 	)
 	(symbol
 		(lib_id "Device:LED")
@@ -4865,7 +5283,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "484f534f-850c-4f46-9810-eaffdc4af7de")
+		(uuid "122e75ce-218b-4ece-bc15-8ab2f387b146")
 		(property
 			"Reference"
 			"D5"
@@ -4932,11 +5350,11 @@
 		)
 		(pin
 			"1"
-			(uuid "d043ebbf-6565-46ce-a0b6-8ab8dc456f11")
+			(uuid "5584c96e-1c3f-402f-a47f-86da0918b0ae")
 		)
 		(pin
 			"2"
-			(uuid "73e1e113-c485-415b-ba1a-83c23c778c0f")
+			(uuid "339b5e8f-6a16-4fae-aa74-db2ef97a2130")
 		)
 		(instances
 			(project
@@ -4958,7 +5376,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "69d32626-49f8-4916-8fc7-1da46c3c287d")
+		(uuid "8248f184-add0-41c5-a874-b163e91ec693")
 	)
 	(label
 		"GND"
@@ -4969,7 +5387,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "28b7bdae-0dbb-4d43-83ee-9cf6736283ea")
+		(uuid "15d11422-cf51-4eb1-b6be-98f713558630")
 	)
 	(symbol
 		(lib_id "Device:Polyfuse")
@@ -4979,7 +5397,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "812ce303-2b72-4e7d-9f80-2f1085c2d1b7")
+		(uuid "c70a9740-ce1f-4b66-904a-5df6c83983e7")
 		(property
 			"Reference"
 			"F4"
@@ -5048,11 +5466,11 @@
 		)
 		(pin
 			"1"
-			(uuid "19856afb-b003-4b32-aeb1-ccecd19b737a")
+			(uuid "dbf92ff2-4421-4930-81b9-a562868fde1a")
 		)
 		(pin
 			"2"
-			(uuid "80bb589e-443a-42d0-b74e-83557f44ad09")
+			(uuid "b2b9dd05-c84b-48a7-9524-e8cdb514d1a7")
 		)
 		(instances
 			(project
@@ -5074,7 +5492,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "789fe0fe-10db-4c2c-8244-1ff5f084c79f")
+		(uuid "cd1206a8-cb45-476f-b676-a2cf98b102dd")
 	)
 	(label
 		"+12V"
@@ -5085,7 +5503,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "257b1f8f-3d81-4175-a56f-4da2afdad384")
+		(uuid "6d8f52ea-c40a-4c07-a443-135f69dba655")
 	)
 	(wire
 		(pts
@@ -5096,7 +5514,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "722279c7-7764-49c0-b718-ada450183bfd")
+		(uuid "51710cb0-86db-4755-8524-9728c3bf53b3")
 	)
 	(label
 		"+12V_GW"
@@ -5107,7 +5525,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "f8374baf-cb1c-4156-b688-23cf575ff331")
+		(uuid "c6625fa5-f17a-43cf-86ce-1d3431d3ad31")
 	)
 	(symbol
 		(lib_id "Device:R")
@@ -5117,7 +5535,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "e2205b0c-2d48-450e-9b9d-ccbab1f05154")
+		(uuid "125e1465-9eda-498b-ae43-378e9d54435b")
 		(property
 			"Reference"
 			"R5"
@@ -5186,11 +5604,11 @@
 		)
 		(pin
 			"1"
-			(uuid "14ef573e-fd09-4de3-99c0-d2c988a3ebc0")
+			(uuid "b7320ea7-03b8-4366-9018-87dcae6b87be")
 		)
 		(pin
 			"2"
-			(uuid "9790106a-a9ac-4e48-9d0f-001e29a95463")
+			(uuid "109a220d-f6e7-47d1-a630-e6ed003ab734")
 		)
 		(instances
 			(project
@@ -5212,7 +5630,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "c7576d56-46e7-40a2-8ad8-c344f151cf59")
+		(uuid "f0476a72-fc83-474a-813f-242da5a400fb")
 	)
 	(label
 		"+12V_GW"
@@ -5223,7 +5641,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "fc2664fa-65f2-4d3a-aaa6-21f6e64130da")
+		(uuid "91600d55-9d6a-434a-b99a-dd42fbd7158f")
 	)
 	(symbol
 		(lib_id "Device:LED")
@@ -5233,7 +5651,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "4046f342-7584-4188-82a9-8d4bb9f556aa")
+		(uuid "3ab3375e-e37b-46dd-812e-308a145d6478")
 		(property
 			"Reference"
 			"D6"
@@ -5300,11 +5718,11 @@
 		)
 		(pin
 			"1"
-			(uuid "7fa2b347-3eb2-495a-9ab0-0532f5945576")
+			(uuid "8c52d749-9f7b-4b79-aac6-2c7142f84b88")
 		)
 		(pin
 			"2"
-			(uuid "090101e8-f5f1-4242-90e9-3ee9df8554e9")
+			(uuid "da6fa3f4-6a97-4ba6-979d-94a7e9ab892c")
 		)
 		(instances
 			(project
@@ -5326,7 +5744,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "fbb03358-0670-4510-8c82-4a229348cac5")
+		(uuid "51ace150-5dc9-46b4-ad49-600bc7dd5a38")
 	)
 	(label
 		"GND"
@@ -5337,7 +5755,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "88be6de6-ae2d-44d6-9ad3-df721b654895")
+		(uuid "a578bb24-3148-4421-a4c6-fa16e464f684")
 	)
 	(symbol
 		(lib_id "Connector_Generic:Conn_01x04")
@@ -5347,7 +5765,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "93738b22-cf74-4358-b11d-e78bedf30644")
+		(uuid "66eb6c74-dde7-4c83-8c76-6ec814835e27")
 		(property
 			"Reference"
 			"J2"
@@ -5403,19 +5821,19 @@
 		)
 		(pin
 			"1"
-			(uuid "97ebec91-5a54-4b22-a3c9-a3845a296e79")
+			(uuid "2ea7d270-6c3d-4851-b657-4d243d3975c3")
 		)
 		(pin
 			"2"
-			(uuid "e3ca5cf7-72bf-4d2b-a211-a07b76b1f6b6")
+			(uuid "444c86ae-9fa6-41f5-9f5a-ff055f038035")
 		)
 		(pin
 			"3"
-			(uuid "65ab5321-7180-4da1-afca-d74cb7123e67")
+			(uuid "91ce6787-ea73-468e-b8cc-2f5198696813")
 		)
 		(pin
 			"4"
-			(uuid "11803abe-9f84-49b3-843e-8511e6356f1f")
+			(uuid "fd087599-1476-4fc8-ad7d-5881e9907e84")
 		)
 		(instances
 			(project
@@ -5437,7 +5855,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "f12f380f-ba1c-4118-afe4-9f7092349e62")
+		(uuid "aeefef24-6b5f-42d1-bcf4-69aecc986118")
 	)
 	(label
 		"+12V_ROW1"
@@ -5448,7 +5866,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "465e4b1d-2f77-4e0c-b5e4-048dfafb95ed")
+		(uuid "b5df8479-837a-450d-b2f2-7758f92dbf8f")
 	)
 	(wire
 		(pts
@@ -5459,7 +5877,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "6e5e72c5-a81c-4100-ab03-ef1afd593955")
+		(uuid "eb25ca6f-253f-4b72-9ede-b85968b6dea4")
 	)
 	(label
 		"RS485_B"
@@ -5470,7 +5888,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "deba2ba6-83fc-4c28-862f-f1114e3155cc")
+		(uuid "45090a76-123b-4e1f-8af8-04df474c256d")
 	)
 	(wire
 		(pts
@@ -5481,7 +5899,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "45f99464-d7cf-4152-b869-cff82f3bb780")
+		(uuid "e621a9e7-4c16-4d64-883c-1fbd80205a31")
 	)
 	(label
 		"RS485_A"
@@ -5492,7 +5910,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "47ae9394-08ce-40ef-9b77-81a31f8346da")
+		(uuid "463a3fbd-d7a0-41d2-b641-7c8a11754565")
 	)
 	(wire
 		(pts
@@ -5503,7 +5921,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "4dddd453-8dfc-4189-80d9-6c62e11fb8c8")
+		(uuid "aa7fcd54-2199-4833-a58c-76140a6bb085")
 	)
 	(label
 		"GND"
@@ -5514,7 +5932,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "f93d6032-3c8e-4a1f-b5ef-b19b7d7ca81b")
+		(uuid "9062cc65-309d-4bcc-8c34-ec73af6d44d4")
 	)
 	(symbol
 		(lib_id "Connector_Generic:Conn_01x04")
@@ -5524,7 +5942,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "c2fa23d2-50b9-4026-afec-4b26dcf1c04c")
+		(uuid "15a67405-5895-482c-8e4e-b871087c1c09")
 		(property
 			"Reference"
 			"J3"
@@ -5580,19 +5998,19 @@
 		)
 		(pin
 			"1"
-			(uuid "03b51f5c-4163-46d2-bac8-4ed83460abdf")
+			(uuid "c0bb8e5c-3f93-41f0-8928-ae023ceca484")
 		)
 		(pin
 			"2"
-			(uuid "0a904250-8987-461b-8782-ff99696b02dc")
+			(uuid "b5eeba5c-e181-486c-bbf6-52967c368b7f")
 		)
 		(pin
 			"3"
-			(uuid "cf7f4720-8c09-48e2-8979-bbca315127dc")
+			(uuid "cef63692-8263-4ef4-bde1-ed2ccdd9becc")
 		)
 		(pin
 			"4"
-			(uuid "6b96ffe6-0909-426c-9be7-5471e9112e5d")
+			(uuid "a84efa60-c629-4c34-957b-214e133771f7")
 		)
 		(instances
 			(project
@@ -5614,7 +6032,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "cc481217-6e30-43d4-949f-f7c7ca2cc146")
+		(uuid "c457d87f-f576-4ac7-bdc4-32a176d52776")
 	)
 	(label
 		"+12V_ROW2"
@@ -5625,7 +6043,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "6b18f3ca-fbed-4d50-b62f-6ee329a7c7f6")
+		(uuid "d54694e6-f07a-496d-bf3e-77306e208dd3")
 	)
 	(wire
 		(pts
@@ -5636,7 +6054,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "fea9d475-4b36-4fa1-a2d3-e325c037796f")
+		(uuid "43e29253-bc19-492c-8a09-49a180ca13d0")
 	)
 	(label
 		"RS485_B"
@@ -5647,7 +6065,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "61936b48-91e5-42ba-a31a-a5f3db36e8ce")
+		(uuid "1084e824-6658-4a73-a6b3-a42a7557257a")
 	)
 	(wire
 		(pts
@@ -5658,7 +6076,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "955193cb-34c2-4639-a2e9-1a03ea057bbd")
+		(uuid "18ecb2a8-0cd1-43dd-b0a3-b0c040db4f29")
 	)
 	(label
 		"RS485_A"
@@ -5669,7 +6087,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "22d52fa1-fe3e-414e-95ce-5bfe6e231097")
+		(uuid "1335531c-05f7-47ad-8dca-a2ae7c05fd39")
 	)
 	(wire
 		(pts
@@ -5680,7 +6098,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "04c5de22-3712-41d4-bc90-59beade46644")
+		(uuid "3c8c96dc-13e5-414b-9cdc-ed5c90896c49")
 	)
 	(label
 		"GND"
@@ -5691,7 +6109,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "aa6021d2-39c6-45e6-8a84-8859bc4ef532")
+		(uuid "d1f83671-c5e0-4959-a612-94cfb2cb3fc9")
 	)
 	(symbol
 		(lib_id "Connector_Generic:Conn_01x04")
@@ -5701,7 +6119,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "04eadf3d-3211-49d7-8d0f-118e09fb39e5")
+		(uuid "002b8afc-21fa-4958-8b94-b008f4a0c97c")
 		(property
 			"Reference"
 			"J4"
@@ -5757,19 +6175,19 @@
 		)
 		(pin
 			"1"
-			(uuid "2afe2966-3076-4f7c-b5c8-ca1b75abc438")
+			(uuid "261a50f3-a0c6-45ed-b755-7f627a607628")
 		)
 		(pin
 			"2"
-			(uuid "f1aeab9f-8c21-4ff7-906b-f69fc84cf17f")
+			(uuid "9fb63f19-eee7-49d9-9455-2d39fb19ebfe")
 		)
 		(pin
 			"3"
-			(uuid "edd98440-a5df-4804-9e7f-eec65a4a8d93")
+			(uuid "6036b70e-f3c5-4f6d-808a-7bbd3ac49dae")
 		)
 		(pin
 			"4"
-			(uuid "f4a5a316-b9e2-43e0-8c04-9be65b5d76c2")
+			(uuid "aa271436-d255-4fda-ba1b-e7c024819fa3")
 		)
 		(instances
 			(project
@@ -5791,7 +6209,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "0a7dbf6b-c07a-4cd7-965c-5954cf7f4058")
+		(uuid "cf59222c-bdce-4bb6-a901-80184c9246f9")
 	)
 	(label
 		"+12V_ROW3"
@@ -5802,7 +6220,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "4c085209-527d-48e9-b0cc-23549645d765")
+		(uuid "8d84c3b0-a4fd-4e69-a637-ea60db8b80a4")
 	)
 	(wire
 		(pts
@@ -5813,7 +6231,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "46f75e73-ba19-4246-a05f-c770ca83e9a3")
+		(uuid "7dd1821e-e7e7-4149-ad07-24027855eb32")
 	)
 	(label
 		"RS485_B"
@@ -5824,7 +6242,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "76237c04-e71c-4274-b74b-90df808ed3b0")
+		(uuid "daafe677-4c84-4ddd-abf2-9efca0076e12")
 	)
 	(wire
 		(pts
@@ -5835,7 +6253,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "ac8b3dc4-2a41-43f3-a727-98bed0bc35ca")
+		(uuid "86455fc7-b9f0-4a33-bc6a-7f0a790755d4")
 	)
 	(label
 		"RS485_A"
@@ -5846,7 +6264,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "184c4413-255a-40a4-bd48-2a8e042462b4")
+		(uuid "9c7502c9-7138-4ffb-8886-5e3007429984")
 	)
 	(wire
 		(pts
@@ -5857,7 +6275,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "b50791d7-ce8a-4da8-bad6-e32602a2bf4c")
+		(uuid "e27821ad-c701-4290-9d79-f49502397e56")
 	)
 	(label
 		"GND"
@@ -5868,7 +6286,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "71fc7a1c-e9c7-4469-a1c4-e754fd7c5148")
+		(uuid "2da4cd12-cf85-43bd-b13c-88cb1ebca941")
 	)
 	(symbol
 		(lib_id "Connector_Generic:Conn_01x02")
@@ -5878,7 +6296,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "fcfd0c23-06f9-4481-bbed-d14e3c0671b6")
+		(uuid "f6a407db-509d-4219-b070-d4c86b72b73b")
 		(property
 			"Reference"
 			"J5"
@@ -5934,11 +6352,11 @@
 		)
 		(pin
 			"1"
-			(uuid "c2bdd10a-8a9f-461a-8b25-11b2575c01e2")
+			(uuid "05763967-91ba-4751-967c-9412fe2aa584")
 		)
 		(pin
 			"2"
-			(uuid "a4e852a4-9d2c-41a6-8e14-968fa08ff220")
+			(uuid "f0333619-8c64-4cfd-8c56-60b90abaed27")
 		)
 		(instances
 			(project
@@ -5960,7 +6378,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "efcc7598-b4bd-4e15-ba4c-a9c4e76ef382")
+		(uuid "8736d220-a9af-46ec-bfe3-d4eb2051e500")
 	)
 	(label
 		"+12V_GW"
@@ -5971,7 +6389,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "3e810a19-c4e2-4577-bb07-09c4cafe1ac7")
+		(uuid "517ad20f-73d4-485a-8409-0b79d66e9a7b")
 	)
 	(wire
 		(pts
@@ -5982,7 +6400,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "324284ae-5c7a-4ec7-b178-14c8196bb38b")
+		(uuid "2a2e2b25-4758-4ab2-905a-f161a0d3ae50")
 	)
 	(label
 		"GND"
@@ -5993,7 +6411,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "6594cfb4-5c71-4c62-9002-b270eae3c762")
+		(uuid "e0f41c78-6b7c-4475-bbd3-b8f743e7fa42")
 	)
 	(symbol
 		(lib_id "Connector_Generic:Conn_01x02")
@@ -6003,7 +6421,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "7edffbf1-73a0-48e9-9295-029750c580d8")
+		(uuid "00cbb352-0c78-4d44-bba2-c91d1379c4cb")
 		(property
 			"Reference"
 			"J6"
@@ -6059,11 +6477,11 @@
 		)
 		(pin
 			"1"
-			(uuid "37e5b7e1-d5d1-4341-b992-f43a9b74b598")
+			(uuid "584e8944-f6c5-4a0b-b4fb-e3edbf763fa7")
 		)
 		(pin
 			"2"
-			(uuid "fd4edcc5-fc4a-4525-b345-883a8f736f08")
+			(uuid "6c69299b-6a1f-4367-8ba5-591f4941589f")
 		)
 		(instances
 			(project
@@ -6085,7 +6503,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "a745c9a1-3dc5-4527-8324-a599fbe233f2")
+		(uuid "8860a945-0676-4f79-98d3-3b21b0e6e741")
 	)
 	(label
 		"RS485_A"
@@ -6096,7 +6514,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "5104b568-eb25-47cc-8c1a-6b0a230efef8")
+		(uuid "17ef3229-dfef-4f6a-b76c-438aa8102105")
 	)
 	(wire
 		(pts
@@ -6107,7 +6525,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "23a0d38d-20f0-4dcb-92c4-c112895d40e0")
+		(uuid "e631e4b5-c26c-4c7c-8386-ef25752ce779")
 	)
 	(label
 		"RS485_B"
@@ -6118,7 +6536,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "6fab34cf-0865-4c2b-929a-bd3d5ab15b64")
+		(uuid "e5264a31-0658-4886-9d1c-2984a6a8384c")
 	)
 	(symbol
 		(lib_id "Device:R")
@@ -6128,7 +6546,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "fc73e9b9-db75-49be-a56f-ce72419d1ed5")
+		(uuid "5e15bfb1-afd6-4e1e-8835-49db2539a29e")
 		(property
 			"Reference"
 			"R7"
@@ -6197,11 +6615,11 @@
 		)
 		(pin
 			"1"
-			(uuid "e9bd50b5-f654-4b1a-ace2-8178f45b012d")
+			(uuid "68667ba0-2bc5-4b47-b83e-b06cec463ca6")
 		)
 		(pin
 			"2"
-			(uuid "f186152f-bf55-4ff5-8566-61a059315304")
+			(uuid "568a74df-5788-478d-8c1a-bc48b9e8b034")
 		)
 		(instances
 			(project
@@ -6223,7 +6641,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "9b670814-d03e-44d6-a853-60e83d662c70")
+		(uuid "340da6dc-2cef-4580-8d27-cd0ef94be8ce")
 	)
 	(label
 		"RS485_A"
@@ -6234,7 +6652,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "b320a75d-ae6e-4ef2-96d7-2e8fdf7fff51")
+		(uuid "a74c95a6-4e6c-4426-a9d3-d732947a889c")
 	)
 	(symbol
 		(lib_id "Jumper:SolderJumper_2_Open")
@@ -6244,7 +6662,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "b4833a80-099e-4fb9-9f7b-45515bcc89c3")
+		(uuid "029cb944-7c72-46cb-a488-192fad0043a4")
 		(property
 			"Reference"
 			"JP1"
@@ -6300,11 +6718,11 @@
 		)
 		(pin
 			"1"
-			(uuid "8fe56e16-6120-4bb0-962b-3b514fc8b7e0")
+			(uuid "6a7fb9a2-acfe-48b7-a298-342fadaf255d")
 		)
 		(pin
 			"2"
-			(uuid "112ee297-a922-4b11-a0a9-7b4d7f6fe38a")
+			(uuid "818ad249-bb12-4984-8c00-4ec290e3b9a7")
 		)
 		(instances
 			(project
@@ -6326,7 +6744,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "8f5a901e-1a71-4ba0-a182-b5a6b16836fa")
+		(uuid "42ae58c8-b08b-4d32-8ce3-b56f6345256c")
 	)
 	(label
 		"RS485_B"
@@ -6337,7 +6755,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "4933c893-e779-4ade-a027-f65f2fd87f8c")
+		(uuid "b0166715-366f-481b-a55b-48cdd5f02af0")
 	)
 	(symbol
 		(lib_id "Regulator_Linear:L78L05_SOT89")
@@ -6347,7 +6765,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "072cd4d0-52bf-4beb-abdf-9995d9d44579")
+		(uuid "c47bb82e-b1ce-40d7-9613-4fec759b5177")
 		(property
 			"Reference"
 			"U2"
@@ -6414,15 +6832,15 @@
 		)
 		(pin
 			"1"
-			(uuid "2dbc4a7b-25b1-41a6-a487-7bf61ea854c2")
+			(uuid "3105d85d-eb2e-4b13-992a-bcad236b08b0")
 		)
 		(pin
 			"2"
-			(uuid "b7690ec3-376e-4dd6-b4a7-14c62ff70481")
+			(uuid "96b1d3dc-550a-4d46-8281-98a60837f262")
 		)
 		(pin
 			"3"
-			(uuid "2817351a-0441-41af-b669-3cd4a16f21fb")
+			(uuid "ca066758-8348-4749-8594-9da8242c9f2d")
 		)
 		(instances
 			(project
@@ -6444,7 +6862,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "65d24b11-0b66-40e8-adab-70e2bd6c1654")
+		(uuid "513fcc18-8764-443c-9c59-da9c65d57b68")
 	)
 	(label
 		"+5V"
@@ -6455,7 +6873,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "da876500-232f-4f37-9959-a42d4e08cf3c")
+		(uuid "783e5bfb-528e-4cd4-b786-780f37d3e08f")
 	)
 	(wire
 		(pts
@@ -6466,7 +6884,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "b518d848-7f6f-4fd6-8be7-4c264a74c569")
+		(uuid "3457fcf5-f65b-434e-ac12-2590f0733e3b")
 	)
 	(label
 		"GND"
@@ -6477,7 +6895,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "8e1f5a2b-97a8-4bb3-a094-f5aaa4768930")
+		(uuid "d0a1ffa6-5a51-413b-beea-93fd1af3b2a6")
 	)
 	(wire
 		(pts
@@ -6488,7 +6906,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "676405d8-fdc4-40f2-bde8-972a37b791a6")
+		(uuid "b4283109-ddd9-43d6-b925-978238f4d1a9")
 	)
 	(label
 		"+12V"
@@ -6499,7 +6917,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "1f26b93d-bd00-4724-a2c8-fdd0a0d8ac8c")
+		(uuid "ab8eb655-7128-45ae-821b-299e023623ad")
 	)
 	(symbol
 		(lib_id "Device:C")
@@ -6509,7 +6927,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "d1c9e59b-3e37-4c34-ac54-1fdf7fdb6f39")
+		(uuid "de6017c0-0995-46ed-b8d5-fb670c21a52e")
 		(property
 			"Reference"
 			"C4"
@@ -6578,11 +6996,11 @@
 		)
 		(pin
 			"1"
-			(uuid "e6f8ba50-c945-4490-889a-6494e8dc4b12")
+			(uuid "69fd8cd1-c994-4e42-baf9-300e96b6ed3c")
 		)
 		(pin
 			"2"
-			(uuid "25b2ed32-8174-41ea-9afb-f5b62e6f350c")
+			(uuid "4f268170-14bb-4452-803c-89dd9d5412d8")
 		)
 		(instances
 			(project
@@ -6604,7 +7022,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "0f1f06fb-2941-4e93-94c0-e786591041c3")
+		(uuid "48b388ee-e0c5-49e1-be8a-5c6dd451fe87")
 	)
 	(label
 		"+12V"
@@ -6615,7 +7033,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "8ee432cc-f992-4ccb-8abe-d9de4f841ca9")
+		(uuid "999a3ef7-80e3-4534-8845-2de7e315b09a")
 	)
 	(wire
 		(pts
@@ -6626,7 +7044,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "72fbc841-3f2b-4cbe-90fb-66de2efdaeaf")
+		(uuid "8f66e0b6-edbc-4db3-ba32-6d7b075096cb")
 	)
 	(label
 		"GND"
@@ -6637,7 +7055,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "8ed72ee2-1910-4583-bf84-7706e05aae94")
+		(uuid "c3de30fc-cbd0-48e2-94de-0680ebc2d482")
 	)
 	(symbol
 		(lib_id "Device:C")
@@ -6647,7 +7065,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "3cab0f14-3b2a-4277-bdba-3b8a2132d726")
+		(uuid "e5f23e9a-78bc-4384-a615-703536e5f7dc")
 		(property
 			"Reference"
 			"C5"
@@ -6716,11 +7134,11 @@
 		)
 		(pin
 			"1"
-			(uuid "163efd18-a304-4037-9962-6a9077ca1e9b")
+			(uuid "0bd6af98-0414-4672-80bb-dd4b68cd7715")
 		)
 		(pin
 			"2"
-			(uuid "389905a3-5210-49c9-9d98-2191ecc76509")
+			(uuid "af5097e3-cd55-4711-9a4d-67efa3a831e8")
 		)
 		(instances
 			(project
@@ -6742,7 +7160,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "b86061a4-d234-4d21-ab63-7a39c340cfe0")
+		(uuid "a24e66d8-ab7c-475c-973d-e2867808cbe6")
 	)
 	(label
 		"+5V"
@@ -6753,7 +7171,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "3ee907c4-0546-4dc7-8bea-f959b1623db0")
+		(uuid "968328a7-5b15-4d29-9e30-e85cdccbf720")
 	)
 	(wire
 		(pts
@@ -6764,7 +7182,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "ba526993-b6c8-495e-93d1-ef6dbc3fef25")
+		(uuid "9d76a955-53b9-4596-a6d8-c60b003659ae")
 	)
 	(label
 		"GND"
@@ -6775,7 +7193,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "591819fb-ef80-48e5-9027-3f7c01664549")
+		(uuid "1623b12c-60a4-4fe0-bce1-d4fcf8483c7c")
 	)
 	(symbol
 		(lib_id "Device:C")
@@ -6785,7 +7203,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "f9cacf05-a3e2-4715-9ea2-1c5553b84e8c")
+		(uuid "bfc09e1b-8f8b-4ecd-a31d-e1c22c300fb8")
 		(property
 			"Reference"
 			"C3"
@@ -6854,11 +7272,11 @@
 		)
 		(pin
 			"1"
-			(uuid "ef6a9e17-d416-4772-8d1a-4954afdc6cf8")
+			(uuid "1dbf4117-9e98-43ef-b4a5-57873549fef1")
 		)
 		(pin
 			"2"
-			(uuid "f1aef8ca-1a66-4bb4-b429-066263fc34f6")
+			(uuid "bb6a2128-895b-460c-a13a-ef54dfe544bf")
 		)
 		(instances
 			(project
@@ -6880,7 +7298,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "1a0ceeec-77d7-4a4d-8c22-9ce455acc4f8")
+		(uuid "7fcb7f04-396b-489e-a191-fd5bd48b8afe")
 	)
 	(label
 		"+5V"
@@ -6891,7 +7309,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "94ed2249-a574-4656-9d68-d31312c19eff")
+		(uuid "561dcf7c-ca74-441e-9aa9-bc88f534fc90")
 	)
 	(wire
 		(pts
@@ -6902,7 +7320,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "ea600dec-bb0b-47d8-9bba-7558b49d844a")
+		(uuid "0fef04c4-dbcb-4bbf-992a-e682bc0fde31")
 	)
 	(label
 		"GND"
@@ -6913,7 +7331,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "d58f5d9d-8259-4187-8049-b5c3a14c31e2")
+		(uuid "5391499a-fc2c-419f-aa84-8d3225761fec")
 	)
 	(symbol
 		(lib_id "Connector_Generic:Conn_01x02")
@@ -6924,7 +7342,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "2b4ace07-0ecd-4437-b658-ba5a15a256bb")
+		(uuid "fe178830-4897-4f3f-9fee-33b6957c33e7")
 		(property
 			"Reference"
 			"J7"
@@ -6980,11 +7398,11 @@
 		)
 		(pin
 			"1"
-			(uuid "c05eac62-12a5-4a6b-b2a8-091930984e9d")
+			(uuid "c28ae5c4-fbd5-4f47-a0d0-1a482b1e17c3")
 		)
 		(pin
 			"2"
-			(uuid "c557ffd7-6317-46d0-8398-1cb65e93a700")
+			(uuid "0c522d0b-062a-4674-92b5-593a34e2c5aa")
 		)
 		(instances
 			(project
@@ -7006,7 +7424,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "f9b280a4-0f94-47bf-a4b6-ed3cae389c7c")
+		(uuid "8a887c83-64aa-4d0d-a80a-1ef9ae2fa07c")
 	)
 	(label
 		"GND"
@@ -7017,7 +7435,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "91226efe-1508-4551-a599-3480970596a0")
+		(uuid "ed0ac415-4568-40f5-aa71-dbd204d3acbb")
 	)
 	(symbol
 		(lib_id "Device:R")
@@ -7027,7 +7445,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "261b2009-1913-403b-a965-0e2dca667d6e")
+		(uuid "ddf264a1-4f91-4c17-a3f5-b144019db050")
 		(property
 			"Reference"
 			"R8"
@@ -7096,11 +7514,11 @@
 		)
 		(pin
 			"1"
-			(uuid "884aed9d-0c8a-4de3-a749-6dfb99f23294")
+			(uuid "1076d7ed-313b-47de-8403-14de027b31f2")
 		)
 		(pin
 			"2"
-			(uuid "f3dc0d04-55f7-40cf-9218-0373ec991503")
+			(uuid "4c4e5bcd-b4b0-440c-9729-0a7d690024d4")
 		)
 		(instances
 			(project
@@ -7122,7 +7540,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "0873d000-0a96-44ff-86a8-53159d3b426c")
+		(uuid "213ecdad-7fd5-43ac-8fa7-6cfc21161959")
 	)
 	(label
 		"GND"
@@ -7133,7 +7551,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "f62a0111-395d-4607-82ce-10a4c8770783")
+		(uuid "d6be8c5e-5804-499c-a4d0-eb86758e9b26")
 	)
 	(symbol
 		(lib_id "74xGxx:74AHCT1G125")
@@ -7143,7 +7561,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "a6fda7be-d008-4712-bb72-eaeda4358950")
+		(uuid "86ad7ab4-f05c-4118-b6df-654428c00ce7")
 		(property
 			"Reference"
 			"U1"
@@ -7212,23 +7630,23 @@
 		)
 		(pin
 			"1"
-			(uuid "f9782ee4-57b7-48fe-813f-5fc36b1ba556")
+			(uuid "a92c3c98-f68a-405b-af8f-5481549cbc37")
 		)
 		(pin
 			"2"
-			(uuid "bb9e4382-4b0d-42e4-b5c6-16d59e2c0e69")
+			(uuid "0cffc970-2023-4ad9-be30-db3b2230bf11")
 		)
 		(pin
 			"3"
-			(uuid "b2e0ee87-780b-42e9-a844-0a0dff833579")
+			(uuid "2b4ca667-5d91-4753-8a66-2f7a2af303aa")
 		)
 		(pin
 			"4"
-			(uuid "dd1dcaf1-33de-4ffa-a511-0f942f35e1f3")
+			(uuid "8486c770-4438-4ae6-8d25-f1ddc118bc74")
 		)
 		(pin
 			"5"
-			(uuid "108f4757-8d01-4afc-acd7-9cb1a25fd161")
+			(uuid "2c843c15-81c3-4dc1-90c1-3e24cec20aac")
 		)
 		(instances
 			(project
@@ -7250,7 +7668,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "45a12375-5e14-477a-aeed-656439317e56")
+		(uuid "90fac98f-a8e4-42c8-86e8-01fd07552f50")
 	)
 	(label
 		"GND"
@@ -7261,7 +7679,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "dbeff377-da0f-46ab-a9d4-4ce32ce23c5a")
+		(uuid "df303672-de80-4cbe-bb5b-199788a43d08")
 	)
 	(wire
 		(pts
@@ -7272,7 +7690,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "69210c98-6774-495b-842b-4a2bcf93b0f3")
+		(uuid "0fd7a0cb-f909-4b50-ae69-4259da9b6db6")
 	)
 	(label
 		"GND"
@@ -7283,7 +7701,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "e51eb28f-ea74-4517-b601-40852b05ef9a")
+		(uuid "33bfddfc-0c7c-4eec-8591-404dce02c77f")
 	)
 	(wire
 		(pts
@@ -7294,7 +7712,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "d0914c28-61e7-42bc-a24e-2d3947ff7805")
+		(uuid "f87c5326-d900-4fc3-ae47-55a4468531ad")
 	)
 	(label
 		"+5V"
@@ -7305,7 +7723,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "9aa57813-65f9-4ef1-8779-124a640ac993")
+		(uuid "26466ac1-994f-4a78-b002-2166c9075088")
 	)
 	(symbol
 		(lib_id "Device:R")
@@ -7315,7 +7733,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "f095af44-bc8c-43a7-ac6d-58f5cded5770")
+		(uuid "1b2e79f1-043b-40dd-a05b-d80f850513b7")
 		(property
 			"Reference"
 			"R9"
@@ -7382,11 +7800,11 @@
 		)
 		(pin
 			"1"
-			(uuid "8ddff288-2004-45b4-9755-c205f21d302b")
+			(uuid "9fa6b195-d0f7-4070-9f45-a8cbca38e0ed")
 		)
 		(pin
 			"2"
-			(uuid "5bc27452-5be0-46b0-bd25-14e0d6ac437f")
+			(uuid "1dd66fa0-3578-4386-925d-ecc6d065f3b6")
 		)
 		(instances
 			(project
@@ -7408,7 +7826,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "b5e3b7de-238d-47ca-84a8-6645e9e58fe2")
+		(uuid "2c713a8d-26db-4483-b374-2ad4f8733232")
 	)
 	(label
 		"LED_DIN"
@@ -7419,7 +7837,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "9638a541-9059-487e-a49e-8e7fbca3f4cb")
+		(uuid "60328102-43e1-45d9-b284-d749f29e23f0")
 	)
 	(symbol
 		(lib_id "Connector_Generic:Conn_01x04")
@@ -7429,7 +7847,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "f2f44ec9-0770-47bd-98a4-2e37dbb3fbc0")
+		(uuid "38e971ce-0f96-4e06-b7d4-7cf208ef5587")
 		(property
 			"Reference"
 			"J8"
@@ -7485,19 +7903,19 @@
 		)
 		(pin
 			"1"
-			(uuid "55504df8-5bbd-4c22-b448-96a5edfc0b5d")
+			(uuid "f6076fff-f96d-4946-bca5-ce54f95d8b5d")
 		)
 		(pin
 			"2"
-			(uuid "e2b323ab-10da-49a0-add8-ae1d65ffcae5")
+			(uuid "b836fa3c-3880-41fc-a29f-d14b8614ed9b")
 		)
 		(pin
 			"3"
-			(uuid "4f32bdfa-95bc-4341-b1f0-76f55e352bee")
+			(uuid "e0e05a48-ebad-4c4d-b899-e79091c13335")
 		)
 		(pin
 			"4"
-			(uuid "ef0bb5a2-ff2a-4b72-9544-44c6c4cbfd83")
+			(uuid "b04b11db-8bd7-4df3-b86f-940813a1561b")
 		)
 		(instances
 			(project
@@ -7519,7 +7937,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "f9ed3b11-c90e-42dd-9c0f-7177c56466af")
+		(uuid "ffbebde9-bcc4-4267-a4e1-7813d4a73427")
 	)
 	(label
 		"+12V"
@@ -7530,7 +7948,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "c90d0b33-f6bd-4383-a1f1-67eccc5cbd9e")
+		(uuid "3b865e4b-1464-40d7-8168-beddea150ecd")
 	)
 	(wire
 		(pts
@@ -7541,7 +7959,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "9643a2db-e1c5-4d1a-af6a-51fe0e13b4c7")
+		(uuid "ca48b4dc-7a22-4ed9-8f24-30fb31bbe3e7")
 	)
 	(label
 		"LED_DIN"
@@ -7552,7 +7970,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "b5ceb6e6-05c5-401b-9f47-2784b78aa4f6")
+		(uuid "396ddf49-d4a7-40f4-ac54-2743f21dfcab")
 	)
 	(wire
 		(pts
@@ -7563,7 +7981,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "915e3c79-6da2-4b0a-ae4f-27825f259ac2")
+		(uuid "273bdef9-4d08-4e18-b5ea-919c924c81eb")
 	)
 	(label
 		"LED_DIN"
@@ -7574,7 +7992,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "307da8cb-3a4b-4f13-a478-377263aafc14")
+		(uuid "ae438741-5b15-46c2-a01a-7fabca1823d5")
 	)
 	(wire
 		(pts
@@ -7585,7 +8003,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "ba3f5824-c68d-4383-9032-ff4de89089dc")
+		(uuid "8a1fd3a5-700b-4fc7-9ea2-e8d7c5e66ae5")
 	)
 	(label
 		"GND"
@@ -7596,7 +8014,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "1f7ad71d-03a2-491c-9599-2fc9d3b00149")
+		(uuid "76acbb25-5f00-4a95-9eaf-17fd0bbef87f")
 	)
 	(symbol
 		(lib_id "Connector_Generic:Conn_01x02")
@@ -7606,7 +8024,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "f59d7bc8-9346-4966-b56c-6c78646d6e98")
+		(uuid "adbe6d27-b576-412e-b90d-c8f705567221")
 		(property
 			"Reference"
 			"J9"
@@ -7662,11 +8080,11 @@
 		)
 		(pin
 			"1"
-			(uuid "1ae3e1c9-c83e-4826-b1f5-cf7261f555b3")
+			(uuid "8a6a3b39-fef5-4f49-83e2-013d5112ce89")
 		)
 		(pin
 			"2"
-			(uuid "7449b6a5-8eb4-4d26-b4fc-7f61195f7fa8")
+			(uuid "c07ddd2e-853d-4264-9aec-08eaadbf5bf5")
 		)
 		(instances
 			(project
@@ -7688,7 +8106,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "342b0125-64da-4ad2-9aa9-e546490b4d86")
+		(uuid "088aa615-ac26-4e53-b7b0-d2f40a61f86b")
 	)
 	(label
 		"+12V"
@@ -7699,7 +8117,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "e2562fb3-3a08-4880-85d5-5d4837b7c178")
+		(uuid "fa6bdb19-304c-4116-9d6a-5b01b32ce5a7")
 	)
 	(wire
 		(pts
@@ -7710,7 +8128,7 @@
 			(width 0)
 			(type default)
 		)
-		(uuid "15106704-1b50-4778-a29c-bea8d8415a4c")
+		(uuid "1adc1871-e14d-483c-bdb5-eda863f8b001")
 	)
 	(label
 		"GND"
@@ -7721,7 +8139,7 @@
 			)
 			(justify right bottom)
 		)
-		(uuid "55615417-3942-42c1-af38-e7da7244d144")
+		(uuid "3c28279b-584d-46c8-a656-571e0a8c544c")
 	)
 	(symbol
 		(lib_id "power:PWR_FLAG")
@@ -7731,7 +8149,7 @@
 		(in_bom no)
 		(on_board no)
 		(dnp no)
-		(uuid "b9704c47-05e9-4b07-8968-80ba077a24b8")
+		(uuid "d000950c-f757-427c-826e-367b0c4c6603")
 		(property
 			"Reference"
 			"#FLG01"
@@ -7791,7 +8209,7 @@
 		)
 		(pin
 			"1"
-			(uuid "e5bd0ad9-6303-4ff0-919c-b07724c81355")
+			(uuid "1c49da10-426b-4ca0-8c7a-9a924d7070aa")
 		)
 		(instances
 			(project
@@ -7813,7 +8231,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "edfebaed-625a-4ae6-a442-7eaab760b3fd")
+		(uuid "65d512a4-0158-4b3f-aeee-fffab87887a5")
 	)
 	(symbol
 		(lib_id "power:PWR_FLAG")
@@ -7823,7 +8241,7 @@
 		(in_bom no)
 		(on_board no)
 		(dnp no)
-		(uuid "26d532f9-abd4-4af4-bd63-be3f50e5a9cb")
+		(uuid "85dafb67-0d63-4add-ad6d-5903c4d89f6f")
 		(property
 			"Reference"
 			"#FLG02"
@@ -7883,7 +8301,7 @@
 		)
 		(pin
 			"1"
-			(uuid "d1769d7e-3e7b-4f0b-982f-eb3e7000e838")
+			(uuid "6810b54d-171d-45b0-ae18-2044250f349a")
 		)
 		(instances
 			(project
@@ -7905,7 +8323,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "804a4f3e-7a9c-47d6-8b80-af63a45e2197")
+		(uuid "ebbf6d5e-f665-4040-a3de-b86107a7ce5b")
 	)
 	(symbol
 		(lib_id "power:PWR_FLAG")
@@ -7915,7 +8333,7 @@
 		(in_bom no)
 		(on_board no)
 		(dnp no)
-		(uuid "118b03c9-a590-443d-8a2b-a7436d824a8d")
+		(uuid "e091f38d-363e-4ab7-9229-4c0b3439d2fd")
 		(property
 			"Reference"
 			"#FLG03"
@@ -7975,7 +8393,7 @@
 		)
 		(pin
 			"1"
-			(uuid "52d0a1ff-e1c9-4bc2-8bf6-9005c1c8cd7a")
+			(uuid "d187f303-0050-4a1c-ac55-caf253173b92")
 		)
 		(instances
 			(project
@@ -7997,7 +8415,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "9cc30514-5fa4-41c4-86a4-997aa67f6545")
+		(uuid "cb489a59-626e-47ce-98f7-9b5e532f7a13")
 	)
 	(symbol
 		(lib_id "Mechanical:MountingHole")
@@ -8007,7 +8425,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "3c7e70ca-ba92-407b-ae76-fa3109c1fce4")
+		(uuid "42d3468f-cf09-4d43-8caf-9abeb0ebedbc")
 		(property
 			"Reference"
 			"H1"
@@ -8080,7 +8498,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "6d80546b-7bcb-490e-890b-f84801dc28c9")
+		(uuid "91add7d8-1f3e-4174-b6a9-f34c0cf1caeb")
 		(property
 			"Reference"
 			"H2"
@@ -8153,7 +8571,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "c13cb069-6810-4220-bf85-f7b86159e54e")
+		(uuid "ac8fc3c2-b2a4-4a63-823b-33cfdc5f8622")
 		(property
 			"Reference"
 			"H3"
@@ -8226,7 +8644,7 @@
 		(in_bom yes)
 		(on_board yes)
 		(dnp no)
-		(uuid "c5c666af-6d7e-4956-a09c-4fd7feeeb8d8")
+		(uuid "abf2aab9-8cfa-4939-8940-5b57a5b2a759")
 		(property
 			"Reference"
 			"H4"
@@ -8301,7 +8719,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "b66efa44-e2b0-433b-84bd-8c6d8f1c19e4")
+		(uuid "49076b64-e8b5-4bfb-984b-7ee3769bd074")
 	)
 	(text
 		"Brick -> DIN jack J1 (board edge) -> rocker switch on J10 -> +12V (whole board)."
@@ -8313,7 +8731,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "5fb3e0a5-1115-4a84-ab48-4f74a02b5a2f")
+		(uuid "d1adf1d5-b58b-44a5-a8f8-bae6154d9adb")
 	)
 	(text
 		"FUSED 12 V OUTPUTS"
@@ -8325,7 +8743,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "ac2a69af-3a3a-491b-976a-8292cfb4012e")
+		(uuid "879c63fe-8021-49c8-9a1b-e8f241eda534")
 	)
 	(text
 		"Resettable PTC fuses. Each red LED lights when its output is live; dark = fuse tripped (it resets once cool)."
@@ -8337,7 +8755,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "3df26222-c039-47b1-8b87-0cc4cc25c5c8")
+		(uuid "4fd6311b-435b-4ff3-85ee-016ba1ca56ff")
 	)
 	(text
 		"LED DATA: 5 V SUPPLY + LEVEL SHIFTER"
@@ -8349,7 +8767,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "25fca652-4798-4a8e-9930-5bae369b4258")
+		(uuid "3af9d52e-1ebb-4828-bb9e-a75b386f6260")
 	)
 	(text
 		"LED STRIP OUTPUTS"
@@ -8361,7 +8779,7 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "2cde2396-eae0-4bcf-9333-67bd22f27219")
+		(uuid "9f9c2bd9-59b9-41c2-8d25-f8ece345f77e")
 	)
 	(text
 		"RS-485 BUS + ROW / GATEWAY OUTPUTS"
@@ -8373,10 +8791,10 @@
 			)
 			(justify left bottom)
 		)
-		(uuid "6124eea3-e77e-423a-8fa0-618d63963718")
+		(uuid "eb2feb28-f7a6-44de-a558-693b14144d50")
 	)
 	(text
-		"NOTES\n1. Budget (brick 15 A, keep under 12 A): ~1.5 A drivers/gateway + ~0.2 A per moving module (9 A with all 45 moving).\n    The gateway gives the LEDs what is left: cap = 10.5 A - 0.2 A x modules moving, at most ~7 A (full white).\n    The strip runs straight off +12V (no fuse). Row fuses 7 A hold vs ~3.2 A worst case per row (15 x ~0.2 A).\n2. D1 (SMCJ15A) is a crowbar: if J1 is wired backwards it conducts and the brick's short-circuit protection shuts it down.\n3. Main switch: a 15 A rocker wired to J10 with 16 AWG carries the full load (~11 A worst case). Use one rated for 12 V DC.\n    Check the brick plug with a meter before first power-up: J1 expects pins 1+4 = +12 V, 2+3 = GND (Mean Well R7B).\n4. The LED strip has no hardware switch: the gateway firmware turns it on and off over the data line.\n5. Row wires follow the bus-board strip order 12V / B / A / GND. The gateway pair is A / B, like the Waveshare A+ / B-.\n6. JP1 = optional 120 ohm termination (solder bridge). Leave it open: the bus runs at 9600 baud over ~2 m. Never use both JP1\n    and the Waveshare 120R jumper, since both sit at the same end of the bus. SN65HVD72 receivers are failsafe, so no bias resistors.\n7. Strip BIN (backup data) is tied to DIN at J8 pin 3, as the strip maker specifies. Put the 1000 uF strip capacitor at the strip, not on this board.\n8. All wires solder straight into the board (plain solder pads): 16 AWG in the 1.5 mm2 pads (J10), 18 AWG in the 1 mm2 pads,\n    22-24 AWG in the 0.5 mm2 pads. SMD parts are JLCPCB-assembled (LCSC field); J1, C1 and the wires are hand-soldered."
+		"NOTES\n1. Budget (brick 15 A, keep under 12 A): ~1.5 A drivers/gateway + ~0.2 A per moving module (9 A with all 45 moving).\n    The gateway gives the LEDs what is left: cap = 10.5 A - 0.2 A x modules moving, at most ~7 A (full white).\n    The strip runs straight off +12V (no fuse). Row fuses 7 A hold vs ~3.2 A worst case per row (15 x ~0.2 A).\n2. D1 (SMCJ15A) is a crowbar: if J1 is wired backwards it conducts and the brick's short-circuit protection shuts it down.\n3. Main switch: a 15 A rocker wired to J10 with 16 AWG carries the full load (~11 A worst case). Use one rated for 12 V DC.\n    Check the brick plug with a meter before first power-up: J1 expects jack pins 2+4 = +12 V, 1+3 = GND (Kycon numbers).\n    If it is reversed: cut NT1 and NT2, then wire the NT holes: jack pins 1+3 (NT2.1) -> +12V (NT1.2), pins 2+4 (NT1.1) -> GND (NT2.2).\n4. The LED strip has no hardware switch: the gateway firmware turns it on and off over the data line.\n5. Row wires follow the bus-board strip order 12V / B / A / GND. The gateway pair is A / B, like the Waveshare A+ / B-.\n6. JP1 = optional 120 ohm termination (solder bridge). Leave it open: the bus runs at 9600 baud over ~2 m. Never use both JP1\n    and the Waveshare 120R jumper, since both sit at the same end of the bus. SN65HVD72 receivers are failsafe, so no bias resistors.\n7. Strip BIN (backup data) is tied to DIN at J8 pin 3, as the strip maker specifies. Put the 1000 uF strip capacitor at the strip, not on this board.\n8. All wires solder straight into the board (plain solder pads): 16 AWG in the 1.5 mm2 pads (J10), 18 AWG in the 1 mm2 pads,\n    22-24 AWG in the 0.5 mm2 pads. SMD parts are JLCPCB-assembled (LCSC field); J1, C1 and the wires are hand-soldered."
 		(exclude_from_sim no)
 		(at 25.4 200.66 0)
 		(effects
@@ -8385,7 +8803,7 @@
 			)
 			(justify left top)
 		)
-		(uuid "da67a4b3-7f00-4252-b198-444f22f531f6")
+		(uuid "f3461b4e-6164-4ac6-9b54-ee8a25ee02bd")
 	)
 	(sheet_instances
 		(path
