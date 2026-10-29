@@ -23,14 +23,14 @@ Pack prices are rounded up to whole packs.
 | [3. Module hardware (45 modules)](#3-module-hardware-45-modules) | $237.66 |
 | [4. Programming (UPDI flasher)](#4-programming-updi-flasher) | incl. above |
 | [5. Gateway & RS-485 bus](#5-gateway--rs-485-bus) | $18.99 |
-| [6. Power](#6-power) | $62.10 |
+| [6. Power](#6-power) | $76.90 |
 | [7. LED perimeter strip](#7-led-perimeter-strip) | $38.37 |
 | [9. Case (plywood back, laser-cut acrylic)](#9-case) | ≈ $70.12 |
-| **Wall total (Kevin's hardware side)** | **≈ $796.81** |
+| **Wall total (Kevin's hardware side)** | **≈ $811.61** |
 | [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $224.43 |
-| **Grand total** | **≈ $1,021** |
+| **Grand total** | **≈ $1,036** |
 
-Realistic all-in budget: **≈ $1,066–1,091**, about $116–141 over the $950 the proposal asks for.
+Realistic all-in budget: **≈ $1,081–1,106**, about $131–156 over the $950 the proposal asks for.
 - The total above already includes shipping and tariffs for JLCPCB (the full checkout quote) and Elecrow.
 - Add roughly $45–70 for shipping from the other stores: Vetco, Adafruit, Seeed, Jameco, DigiKey, Waveshare and Laser by the Creek. Amazon is usually free over $35 or with Prime; Home Depot is store pickup.
 
@@ -177,7 +177,7 @@ cm of thin wire and superglue.
 **Power board** (`PCBs/power-board/`): 5 boards from JLCPCB with the SMD parts assembled, in the same order as §1 and §2 (its cost is inside the $369.57 checkout). The DIN jack, the 1000 µF capacitor and the wires are hand-soldered.
 
 An **external** 12 V brick: no mains wiring enters the case. The brick plugs into the wall, and its
-DC cable plugs into a panel jack on the case.
+DC cable plugs into the power board's 4-pin DIN jack, whose barrel pokes 4 mm through a Ø13.5 mm hole in the case side (panel at most 4 mm thick there).
 
 **Load estimate:**
 - 45 steppers: about 7 A typical, 9 A worst case (45 × ~0.2 A), only while flaps are moving. The firmware releases the coils after every move, so they draw nothing at rest.
@@ -199,17 +199,18 @@ DC cable plugs into a panel jack on the case.
 | Item | Link | Qty | Unit | Ext | Price |
 |---|---|---|---|---|---|
 | Mean Well OWA-200U-12: 12 V, 15 A, 180 W brick. Fully potted, IP67, fanless, Class II (no earth). US plug cord attached; 4-pin power DIN output plug (Kycon KPPX-4P or equivalent). 195 × 68 × 39.5 mm | [Jameco 2324383](https://www.jameco.com/z/OWA-200U-12-MEAN-WELL-12V-15A-180W-Moisture-proof-Power-Adaptor-DIN4_2324383.html) / [Bravo Electro](https://www.bravoelectro.com/owa-200u-12.html) ($61.80) | 1 | $59.50 | $59.50 | SNIP |
-| Kycon KPJX-PM-4S-S: female 4-pin power DIN jack, panel mount, shielded. Mates with the brick's plug; it goes through the case side and is wired to the power board. **Before wiring, confirm which pins are +V and −V with a multimeter on the brick's plug** (two pins each) | [DigiKey 9990082](https://www.digikey.com/en/products/detail/kycon-inc/KPJX-PM-4S-S/9990082) | 1 | $2.60 | $2.60 | SNIP |
-| 18 AWG red/black wire for 12 V runs. About 15 ft: jack → 3 bus rows + both strip ends + gateway. Keep the jack-to-distribution run short (under ~20 cm), since it carries the full current | [Vetco](https://vetco.net/products/jsc-2440_18_awg_2_conductor_red-black_speaker_wire_-_power_wire_-usa_made) ($1.05/ft) | ~15 ft | – | $0 | **Already have** |
-| WAGO 221 lever connectors, for 12 V distribution until the power board replaces them | [Home Depot](https://www.homedepot.com/p/WAGO-221-Lever-Nut-Combo-Kit-40-pack-887-0408/336511597) ($29.97 / 40) | a few | – | $0 | **Already have** |
+| Kycon KPJX-4S-S: female 4-pin power DIN jack, right angle, PCB mount, shielded (J1 on the power board, hand-soldered). Mates with the brick's plug. **Before first power-up, check which pins are +V and −V with a multimeter on the brick's plug**; if it is reversed, use the power board's cut links (NT1/NT2) | [DigiKey 9990088](https://www.digikey.com/en/products/detail/kycon-inc/KPJX-4S-S/9990088) | 1 | $1.64 | $1.64 | SNIP |
+| Cole Hersee 58027-01: sealed SPST on-off rocker, 20 A at 12 V DC, 0.25" quick-connect tabs. Main switch, wired to the power board's SWITCH pads (J10) with 16 AWG; it carries the whole load (~11 A worst case) | [Waytek](https://waytekwire.com/product/cole-hersee-58027-01-sealed-rocker-switch) | 1 | $13.26 | $13.26 | SNIP |
+| 16 AWG wire and two 0.25" female quick-connects for the switch loop, ~2 ft | – | 1 | $2.50 | $2.50 | EST |
+| 18 AWG red/black wire for 12 V runs. About 15 ft: power board → 3 bus rows + both strip ends + gateway | [Vetco](https://vetco.net/products/jsc-2440_18_awg_2_conductor_red-black_speaker_wire_-_power_wire_-usa_made) ($1.05/ft) | ~15 ft | – | $0 | **Already have** |
 | Heat-shrink tubing | – | – | – | $0 | **Already have** |
 | *Optional:* ferrule crimp kit with 1800 ferrules | [Vetco](https://vetco.net/products/vupn1576_ferrule_wire_crimping_tool_kit_with_1800pcs) | (1) | $39.95 | – | LIVE |
-| **Subtotal** | | | | **$62.10** | |
+| **Subtotal** | | | | **$76.90** | |
 
 Notes:
-- **No power switch.** The brick has none, and the C14 inlet with its rocker switch is gone. Unplug the brick, or let the gateway blank the display; a 12 V switch can go on the power board later.
-- **Protection:** the brick shuts down on a short, overload or overheating, and each driver has its own 1.5 A polyfuse (F1). Per-branch fuses are planned for the power board.
-- **Removed from the earlier internal-supply plan:** Mean Well LRS-350-12 ($33.30), C14 inlet with fuse and switch ($13.89), 4 A fuses ($7.50), IEC C13 cord ($5.95; the brick's cord is attached), and the mains wire.
+- **Main switch:** the brick has none, so the rocker on the case switches the 12 V after the jack. The power board's red ON LED shows it is on. Use a switch rated for DC: AC-only ratings arc and wear out on 12 V DC.
+- **Protection:** the brick shuts down on a short, overload or overheating. The power board adds a 15 V TVS crowbar on the input, a 7 A resettable fuse per row and a 3 A fuse for the gateway, each with a red LED that goes dark when it trips. Each driver also has its own 1.5 A polyfuse (F1).
+- **Removed from the earlier internal-supply plan:** Mean Well LRS-350-12 ($33.30), C14 inlet with fuse and switch ($13.89), 4 A fuses ($7.50), IEC C13 cord ($5.95; the brick's cord is attached), and the mains wire. Later replaced by the power board: the KPJX-PM-4S-S panel jack ($2.60) and the WAGO lever connectors.
 
 ## 7. LED perimeter strip
 
@@ -272,7 +273,7 @@ Pi prices are high in 2026 because of the RAM shortage.
 
 The modules (606 × 240 mm) sit in the middle, with a bay on each side for the electronics. That makes the case about **880 × 280 × 95 mm** outside. The height is 240 mm of modules, plus about 15 mm above and below for the LED strip and its standoff, plus the two 3 mm panels.
 
-- **Left bay:** no longer holds mains or a power supply, since the 12 V brick sits outside the case. It only needs the 4-pin DIN power jack and the 12 V distribution (later the power board), so it can shrink. The case size will be revisited once the power board is laid out.
+- **Left bay:** no longer holds mains or a power supply, since the 12 V brick sits outside the case. It only needs the power board (157 × 25.5 mm), whose DIN jack pokes through the case side next to the rocker switch, so it can shrink.
 - **Right bay (low voltage):** the gateway, on the top rail extended into the bay, plus the level-shifter board and buck converter.
 
 How it goes together:
