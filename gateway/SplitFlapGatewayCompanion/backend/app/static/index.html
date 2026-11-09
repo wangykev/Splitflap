@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SplitFlap Gateway Companion</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <!-- Static chrome carries data-i18n attributes (the English text is the catalog
+       key); translateDom() in app.js rewrites them once the catalog for
+       window.__LANG__ is loaded. English needs no pass at all. -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo-tiles"><b>S</b><b>P</b><b>L</b><b>I</b><b>T</b><b>-</b><b>F</b><b>L</b><b>A</b><b>P</b></span>
+      <span class="brand-sub">COMPANION</span>
+    </div>
+    <div class="hdr-right">
+      <!-- The wall we are driving. Hidden entirely while there is only one display, so a
+           single-gateway setup — which is nearly everyone — sees no new chrome at all. -->
+      <select class="display-switch hidden" id="displaySel" title="Display" data-i18n-title="Display" aria-label="Display" data-i18n-label="Display"></select>
+      <!-- Narrow screens only (see styles.css): with the gateway's tabs appended the
+           strip runs to four rows on a phone, so it collapses behind this. -->
+      <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="nav" title="Menu" data-i18n-title="Menu">
+        <span aria-hidden="true">☰</span><span id="navCurrent" data-i18n="Apps">Apps</span>
+      </button>
+      <button class="btn ghost btn-sm" id="devBtn" title="Tools" data-i18n-title="Tools">⚙</button>
+      <span class="badge hidden" id="statusBadge" title="Connection status" data-i18n-title="Connection status"></span>
+    </div>
+  </header>
+
+  <!-- "A new version is available" notice, shown on every page when the companion-wide
+       Check-for-updates setting is on (⚙ Tools) and GitHub reports a newer release. Hidden
+       otherwise, and dismissible per-version (see updateCheck() in app.js). -->
+  <div class="update-banner hidden" id="updateBanner" role="status">
+    <span id="updateBannerText"></span>
+    <a class="update-banner-link" id="updateBannerLink" href="#" target="_blank" rel="noopener"
+       data-i18n="Release notes">Release notes</a>
+    <button class="update-banner-x" id="updateBannerDismiss" aria-label="Dismiss"
+            title="Dismiss" data-i18n-title="Dismiss">✕</button>
+  </div>
+
+  <!-- The gateway's tabs are appended here at runtime, from the list it advertises
+       when we register (Gateway 3.4+), or from GW_TABS_FALLBACK in app.js when it
+       advertises nothing. See backend/app/tabs.py. -->
+  <nav class="tabs" id="nav">
+    <button class="tab active" data-tab="apps" data-i18n="Apps">Apps</button>
+    <button class="tab" data-tab="compose" data-i18n="Compose">Compose</button>
+    <button class="tab" data-tab="playlists" data-i18n="Shows">Shows</button>
+    <button class="tab" data-tab="triggers" data-i18n="Triggers">Triggers</button>
+  </nav>
+
+  <main>
+    <!-- LIVE DISPLAY — the locally-rendered split-flap grid for a flap app (built from the state,
+         no gateway round-trip). A CANVAS/panel app draws pixels; we don't poll its readback for a
+         live image (that pinned the gateway's single HTTP worker and read the wall "offline"), so
+         it shows a short note instead. -->
+    <section class="panel preview-panel">
+      <div class="panel-head">
+        <h2 data-i18n="Live Display">Live Display</h2>
+        <div class="preview-actions">
+          <span class="hint" id="previewMeta"></span>
+          <button class="btn ghost btn-sm hidden" id="gifBtn" title="Record the panel for 8 seconds and download a GIF" data-i18n-title="Record the panel for 8 seconds and download a GIF" data-i18n="⏺ GIF">⏺ GIF</button>
+          <button class="btn ghost btn-sm" id="homeAllBtn" data-i18n="⌂ Home all"
+                  title="Home every module — returns the whole display to its blank home position and stops anything playing"
+                  data-i18n-title="Home every module — returns the whole display to its blank home position and stops anything playing">⌂ Home all</button>
+        </div>
+      </div>
+      <div class="board" id="preview"></div>
+      <div class="preview-canvas-note hidden" id="previewCanvasNote"
+           data-i18n="This app draws on the panel — its live preview is off to keep the display responsive.">This app draws on the panel — its live preview is off to keep the display responsive.</div>
+      <div class="preview-src" id="previewSrc"></div>
+
+      <!-- Live-game control pad — shown only while an interactive matrix app is running
+           (see updateActiveUI). Each press POSTs to /api/game/input; arrow keys / WASD,
+           Space and Enter work too. -->
+      <div class="gamepad hidden" id="gamePad">
+        <div class="dpad">
+          <button class="gbtn up" data-act="up" aria-label="Up" data-i18n-label="Up">▲</button>
+          <button class="gbtn left" data-act="left" aria-label="Left" data-i18n-label="Left">◀</button>
+          <button class="gbtn right" data-act="right" aria-label="Right" data-i18n-label="Right">▶</button>
+          <button class="gbtn down" data-act="down" aria-label="Down" data-i18n-label="Down">▼</button>
+        </div>
+        <div class="game-actions">
+          <button class="btn ghost btn-sm" data-act="start" data-i18n="↺ Restart">↺ Restart</button>
+          <button class="btn ghost btn-sm" data-act="pause" data-i18n="⏸ Pause">⏸ Pause</button>
+          <span class="hint" data-i18n="or use the arrow keys">or use the arrow keys</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- APPS -->
+    <section class="panel tabpage" id="page-apps">
+      <div class="panel-head">
+        <h2 data-i18n="Apps">Apps</h2>
+        <div class="apps-actions">
+          <button class="btn ghost btn-sm" id="globalSettingsBtn" data-i18n="⚙ Global settings"
+                  title="Edit shared settings apps rely on (API keys, location, timezone…)"
+                  data-i18n-title="Edit shared settings apps rely on (API keys, location, timezone…)">⚙ Global settings</button>
+          <button class="btn ghost btn-sm" id="manageAppsBtn" data-i18n="＋ Library"
+                  title="Install / remove apps" data-i18n-title="Install / remove apps">＋ Library</button>
+        </div>
+      </div>
+      <div class="active-banner hidden" id="activeBanner">
+        <span id="activeText">▶ <b></b> is running</span>
+        <button class="btn ghost btn-sm" id="stopAppBtn" data-i18n="■ Stop">■ Stop</button>
+      </div>
+      <div class="apps-grid" id="appsGrid"></div>
+    </section>
+
+    <!-- COMPOSE -->
+    <section class="panel tabpage hidden" id="page-compose">
+      <div class="panel-head">
+        <h2 data-i18n="Compose">Compose</h2>
+        <span class="hint" data-i18n="click a cell to type · arrows to move · a swatch paints the cell">click a cell to type · arrows to move · a swatch paints the cell</span>
+      </div>
+      <!-- A real (hidden) input so iOS/iPadOS opens its on-screen keyboard when
+           you tap a cell — a focused <div> never does. Its keystrokes drive the grid. -->
+      <input id="cmpCatcher" class="cmp-catcher" type="text" autocomplete="off"
+             autocorrect="off" autocapitalize="off" spellcheck="false" tabindex="-1">
+      <div class="board compose-board" id="composeBoard" tabindex="0"></div>
+      <div class="controls compose-controls">
+        <label class="field inline" style="margin:0"><input type="checkbox" id="cmpCenter" style="width:auto"><span style="min-width:0" data-i18n="Center">Center</span></label>
+        <div class="spacer"></div>
+        <button class="btn ghost btn-sm" id="cmpClear" data-i18n="Clear">Clear</button>
+      </div>
+      <div class="swatches" id="cmpSwatches"></div>
+      <div class="controls compose-controls">
+        <label class="field inline" style="margin:0"><span style="min-width:0">↔</span></label>
+        <select id="cmpStyle"></select>
+        <label class="field inline" style="margin:0"><span style="min-width:0">⚡</span></label>
+        <input type="number" id="cmpSpeed" min="0" max="200" step="1" class="cmp-speed">
+        <span class="hint">ms</span>
+        <div class="spacer"></div>
+        <span class="hint" id="cmpMsg"></span>
+      </div>
+      <button class="btn primary cmp-push" id="cmpPush" data-i18n="Push to display">Push to display</button>
+
+      <!-- Overlay ticker (Matrix panels only) — a line that scrolls over whatever app or
+           playlist is running, until cleared. Hidden on a flap wall / a panel too old for it. -->
+      <div class="panel-card hidden" id="composeOverlay">
+        <div class="panel-head"><h3 data-i18n="Overlay ticker">Overlay ticker</h3><span class="hint" id="ovMsg"></span></div>
+        <p class="hint" data-i18n="A line of text that scrolls in a band over whatever else is on the wall. It stays until you clear it, or set a timer to auto-dismiss it.">A line of text that scrolls in a band over whatever else is on the wall. It stays until you clear it, or set a timer to auto-dismiss it.</p>
+        <div class="controls">
+          <input class="input" id="ovText" placeholder="Message to scroll…" data-i18n-placeholder="Message to scroll…" aria-label="Overlay message" data-i18n-label="Overlay message" style="flex:1;min-width:180px">
+          <input type="color" id="ovColor" value="#ffffff" aria-label="Overlay color" data-i18n-label="Overlay color" style="width:44px;padding:2px">
+          <label class="field inline" style="margin:0"><span style="min-width:0">⚡</span></label>
+          <input type="number" id="ovSpeed" min="1" max="20" value="3" class="cmp-speed" aria-label="Speed" data-i18n-label="Speed">
+          <label class="field inline" style="margin:0"><span style="min-width:0" title="Auto-dismiss after N seconds (0 = keep showing)">⏱</span></label>
+          <input type="number" id="ovSecs" min="0" max="86400" value="0" class="cmp-speed" aria-label="Auto-dismiss seconds" data-i18n-label="Auto-dismiss seconds" title="Seconds before it clears itself (0 = keep showing)">
+          <label class="field inline" style="margin:0"><input type="checkbox" id="ovBand" checked style="width:auto"><span style="min-width:0" data-i18n="Band">Band</span></label>
+          <div class="spacer"></div>
+          <button class="btn ghost btn-sm" id="ovClear" data-i18n="Clear">Clear</button>
+          <button class="btn primary btn-sm" id="ovShow" data-i18n="Show overlay">Show overlay</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- PLAYLISTS -->
+    <section class="panel tabpage hidden" id="page-playlists">
+      <div class="panel-head">
+        <h2 data-i18n="Shows">Shows</h2>
+        <div class="subtabs" id="showsTabs">
+          <button class="btn ghost btn-sm active" data-pane="pl" data-i18n="Playlists">Playlists</button>
+          <button class="btn ghost btn-sm hidden" data-pane="mv" id="mvTabBtn" data-i18n="Multiview">Multiview</button>
+        </div>
+      </div>
+      <div id="plPane">
+      <p class="hint" data-i18n="Sequence apps and composed messages, each shown for its own duration.">Sequence apps and composed messages, each shown for its own duration.</p>
+      <div id="plEntries" class="pl-entries"></div>
+      <div class="controls">
+        <button class="btn ghost btn-sm" id="plAddApp" data-i18n="＋ App">＋ App</button>
+        <button class="btn ghost btn-sm" id="plAddMsg" data-i18n="＋ Message">＋ Message</button>
+        <button class="btn ghost btn-sm hidden" id="plAddZones" data-i18n="＋ Multiview">＋ Multiview</button>
+        <!-- The editor's identity. Without it, saving an edit meant retyping the exact
+             name you had just loaded, and a typo silently made a second playlist. -->
+        <input class="input pl-name" id="plName" placeholder="Playlist name" data-i18n-placeholder="Playlist name" aria-label="Playlist name" data-i18n-label="Playlist name">
+        <button class="btn ghost btn-sm" id="plNew" data-i18n="New">New</button>
+        <label class="field inline" style="margin:0"><input type="checkbox" id="plLoop" checked style="width:auto"><span style="min-width:0" data-i18n="Loop">Loop</span></label>
+        <div class="spacer"></div>
+        <button class="btn ghost btn-sm" id="plSave" data-i18n="Save…">Save…</button>
+        <button class="btn primary btn-sm" id="plRun" data-i18n="Run ▶">Run ▶</button>
+      </div>
+      <h3 style="margin:16px 0 8px;font-size:.95rem" data-i18n="Saved playlists">Saved playlists</h3>
+      <div id="plSaved"><span class="hint" data-i18n="None yet.">None yet.</span></div>
+      </div>
+      <div id="zonesCard" class="hidden">
+        <p class="hint" data-i18n="A multiview splits the Matrix panel into 2–3 vertical zones, one app each. Games are excluded — they need the whole panel.">A multiview splits the Matrix panel into 2–3 vertical zones, one app each. Games are excluded — they need the whole panel.</p>
+        <div id="zoneEntries" class="pl-entries"></div>
+        <div class="controls">
+          <button class="btn ghost btn-sm" id="zoneAdd" data-i18n="＋ Zone">＋ Zone</button>
+          <input class="input pl-name" id="zoneName" placeholder="Multiview name" data-i18n-placeholder="Multiview name" aria-label="Multiview name" data-i18n-label="Multiview name">
+          <button class="btn ghost btn-sm" id="zoneNew" data-i18n="New">New</button>
+          <div class="spacer"></div>
+          <button class="btn ghost btn-sm" id="zoneSave" data-i18n="Save…">Save…</button>
+          <button class="btn primary btn-sm" id="zoneRun" data-i18n="Run ▶">Run ▶</button>
+        </div>
+        <h3 style="margin:16px 0 8px;font-size:.95rem" data-i18n="Saved multiviews">Saved multiviews</h3>
+        <div id="zoneSaved"><span class="hint" data-i18n="None yet.">None yet.</span></div>
+      </div>
+    </section>
+
+    <!-- TRIGGERS -->
+    <section class="panel tabpage hidden" id="page-triggers">
+      <div class="panel-head">
+        <h2 data-i18n="Triggers">Triggers</h2>
+        <label class="field inline" style="margin:0"><input type="checkbox" id="trigEnabled" style="width:auto"><span style="min-width:0" data-i18n="Enable all">Enable all</span></label>
+      </div>
+      <p class="hint" data-i18n="Apps watch for events and briefly interrupt the display when something happens.">Apps watch for events and briefly interrupt the display when something happens.</p>
+      <div id="trigList"></div>
+      <div class="controls">
+        <select id="trigAddApp"></select>
+        <button class="btn ghost btn-sm" id="trigAdd" data-i18n="＋ Add trigger">＋ Add trigger</button>
+        <div class="spacer"></div>
+        <span class="hint" id="trigMsg"></span>
+        <button class="btn primary" id="trigSave" data-i18n="Save">Save</button>
+      </div>
+    </section>
+
+
+  </main>
+
+  <!-- Modal (app settings + library) -->
+  <div class="modal-overlay hidden" id="modal">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle" tabindex="-1">
+      <div class="modal-head">
+        <h3 id="modalTitle">…</h3>
+        <button class="modal-close" id="modalClose" aria-label="Close" data-i18n-label="Close">✕</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-foot" id="modalFoot"></div>
+    </div>
+  </div>
+
+  <!-- Version lives here now, quiet in the corner, rather than shouting from the title bar. -->
+  <footer class="page-foot"><span class="ver" id="version"></span></footer>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

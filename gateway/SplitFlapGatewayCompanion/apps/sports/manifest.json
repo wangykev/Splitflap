@@ -1,0 +1,114 @@
+{
+  "id": "sports",
+  "i18n": true,
+  "name": "Sports",
+  "icon": "🏒",
+  "description": "Scores & Schedules",
+  "type": "functional",
+  "surfaces": ["flap", "matrix"],
+  "lcd_ops": true,
+  "refresh_interval": 15,
+  "loop_delay": 5,
+  "trigger_interval": 60,
+  "trigger_display_seconds": 45,
+  "trigger_cooldown": 300,
+  "trigger_conditions": [
+    {
+      "key": "event",
+      "label": "Fire when",
+      "type": "toggle",
+      "default": "game_start",
+      "options": [
+        {"value": "game_start", "label": "Game starts"},
+        {"value": "score_change", "label": "Score changes"},
+        {"value": "close_game", "label": "Close game (within 5)"},
+        {"value": "final", "label": "Game ends"},
+        {"value": "overtime", "label": "Overtime / extra time"},
+        {"value": "playoff", "label": "Playoff / postseason game"},
+        {"value": "comeback", "label": "Comeback alert"},
+        {"value": "rival", "label": "Rival matchup"},
+        {"value": "shutout", "label": "Shutout in progress"}
+      ]
+    },
+    {
+      "key": "teams",
+      "label": "Specific teams (empty = all followed)",
+      "type": "text",
+      "default": ""
+    },
+    {
+      "key": "comeback_margin",
+      "label": "Was down by at least (points)",
+      "type": "number",
+      "default": "10",
+      "min": "3",
+      "max": "30",
+      "step": "1",
+      "visible_when": {"event": "comeback"}
+    },
+    {
+      "key": "rivals",
+      "label": "Rival team abbreviations (comma-separated)",
+      "type": "text",
+      "default": "",
+      "visible_when": {"event": "rival"}
+    }
+  ],
+  "settings": [
+    {
+      "key": "follows",
+      "label": "Teams & leagues to follow",
+      "type": "search_chips",
+      "searchUrl": "/sports_search",
+      "resultKey": "results",
+      "maxItems": 100,
+      "ph": "Search a team or league…",
+      "note": "Add any mix of teams and whole leagues — the app rotates through their games."
+    },
+    {
+      "key": "sports_filter",
+      "label": "Which games to show",
+      "type": "select",
+      "default": "all",
+      "options": [
+        {"value": "all", "label": "All (recent, live & upcoming)"},
+        {"value": "live", "label": "Live only"},
+        {"value": "live+upcoming", "label": "Live & upcoming"},
+        {"value": "live+final", "label": "Live & finals"}
+      ]
+    },
+    {
+      "key": "sports_show_league",
+      "label": "Show the league name",
+      "type": "toggle",
+      "default": "yes",
+      "options": [
+        {"value": "yes", "label": "Yes"},
+        {"value": "no", "label": "No"}
+      ]
+    },
+    {
+      "key": "sports_compact",
+      "label": "Compact (more games per page)",
+      "type": "toggle",
+      "default": "no",
+      "options": [
+        {"value": "no", "label": "No"},
+        {"value": "yes", "label": "Yes"}
+      ]
+    },
+    {
+      "key": "loop_delay",
+      "label": "Delay Between Pages (seconds)",
+      "type": "number",
+      "default": "5",
+      "min": "2",
+      "max": "30",
+      "step": "1",
+      "stepper": true
+    }
+  ],
+  "category": "sports",
+  "min_rows": 1,
+  "min_cols": 8
+}

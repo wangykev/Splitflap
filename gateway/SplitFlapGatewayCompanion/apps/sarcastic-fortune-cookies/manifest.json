@@ -1,0 +1,28 @@
+{
+  "id": "sarcastic-fortune-cookies",
+  "name": "Sarcastic Fortune Cookies",
+  "icon": "🥠",
+  "description": "Cynical fortune-cookie wisdom",
+  "category": "entertainment",
+  "type": "channel",
+  "surfaces": ["flap", "matrix"],
+  "canvas_art": "cookie",
+  "version": "1.1",
+  "refresh_interval": 300,
+  "loop_delay": 10,
+  "order": "random",
+  "min_rows": 3,
+  "min_cols": 15,
+  "settings": [
+    {
+      "key": "loop_delay",
+      "label": "Delay Between Pages (seconds)",
+      "type": "number",
+      "default": "10",
+      "min": "2",
+      "max": "60",
+      "step": "1",
+      "stepper": true
+    }
+  ]
+}

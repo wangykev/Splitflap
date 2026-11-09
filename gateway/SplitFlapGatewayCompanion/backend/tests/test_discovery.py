@@ -1,0 +1,163 @@
+"""Gateway discovery (app/discovery.py): the fingerprint, the sweep, the marks.
+
+Everything runs against httpx.MockTransport — a discovery test that probed the
+real LAN (let alone live hardware) would be doing exactly what this project's
+tests must never do. mDNS is switched off the same way: mdns=False.
+"""
+import asyncio
+
+import httpx2 as httpx
+
+from app import discovery
+
+
+# ---------------------------------------------------------------------------
+# the /api/config fingerprint
+# ---------------------------------------------------------------------------
+def test_looks_like_gateway_fingerprints():
+    assert discovery.looks_like_gateway({"gridRows": 3, "gridCols": 15})
+    # the Matrix Gateway serializes numbers as numbers, but be tolerant of strings
+    assert discovery.looks_like_gateway({"gridRows": "3", "gridCols": "15"})
+    assert not discovery.looks_like_gateway({"gridRows": 0, "gridCols": 15})
+    assert not discovery.looks_like_gateway({"rows": 3, "cols": 15})
+    assert not discovery.looks_like_gateway({"gridRows": "x", "gridCols": 15})
+    assert not discovery.looks_like_gateway([1, 2])
+    assert not discovery.looks_like_gateway(None)
+
+
+# ---------------------------------------------------------------------------
+# which subnets get swept
+# ---------------------------------------------------------------------------
+def test_subnets_come_from_known_gateways_then_our_own_interface(monkeypatch):
+    monkeypatch.setattr(discovery, "detect_local_ip", lambda *_: "10.0.0.7")
+    nets = discovery.candidate_subnets(
+        ["http://192.168.1.229", "http://192.168.1.12:8080"])
+    assert nets == ["192.168.1.0/24", "10.0.0.0/24"]
+
+
+def test_subnets_never_include_the_ha_bridge(monkeypatch):
+    # Inside the add-on the socket trick truthfully reports the container's own
+    # 172.30.x.x address; sweeping that subnet would probe other add-ons.
+    monkeypatch.setattr(discovery, "detect_local_ip", lambda *_: "172.30.33.4")
+    assert discovery.candidate_subnets([]) == []
+
+
+def test_subnets_skip_hostnames_without_choking(monkeypatch):
+    monkeypatch.setattr(discovery, "detect_local_ip", lambda *_: None)
+    assert discovery.candidate_subnets(["http://splitflap-gw.local"]) == []
+
+
+# ---------------------------------------------------------------------------
+# the sweep itself (a fake neighbourhood behind MockTransport)
+# ---------------------------------------------------------------------------
+def _quiet_env(monkeypatch):
+    monkeypatch.setattr(discovery, "detect_local_ip", lambda *_: None)
+    monkeypatch.delenv("SUPERVISOR_TOKEN", raising=False)
+
+
+def test_sweep_finds_a_gateway_and_ignores_the_neighbours(monkeypatch):
+    _quiet_env(monkeypatch)
+
+    def lan(request):
+        if request.url.host == "192.168.1.229" and request.url.path == "/api/config":
+            return httpx.Response(200, json={"gridRows": 3, "gridCols": 15,
+                                             "version": "3.1", "name": "hall wall"})
+        if request.url.host == "192.168.1.50":
+            return httpx.Response(200, text="<html>a printer</html>")
+        raise httpx.ConnectError("unreachable")
+
+    found = asyncio.run(discovery.discover(
+        ["http://192.168.1.10"], transport=httpx.MockTransport(lan), mdns=False))
+    assert [f["url"] for f in found] == ["http://192.168.1.229"]
+    f = found[0]
+    assert (f["rows"], f["cols"], f["version"], f["name"]) == (3, 15, "3.1", "hall wall")
+    assert f["known"] is False
+
+
+def test_already_registered_gateways_are_marked_and_sorted_last(monkeypatch):
+    _quiet_env(monkeypatch)
+
+    def lan(request):
+        if request.url.host in ("192.168.1.10", "192.168.1.229"):
+            return httpx.Response(200, json={"gridRows": 2, "gridCols": 10})
+        raise httpx.ConnectError("unreachable")
+
+    found = asyncio.run(discovery.discover(
+        ["http://192.168.1.10"], transport=httpx.MockTransport(lan), mdns=False))
+    assert [(f["url"], f["known"]) for f in found] == [
+        ("http://192.168.1.229", False),
+        ("http://192.168.1.10", True),
+    ]
+
+
+def test_a_registered_custom_port_is_swept_too(monkeypatch):
+    _quiet_env(monkeypatch)
+
+    def lan(request):
+        if request.url.host == "192.168.1.60" and request.url.port == 8080:
+            return httpx.Response(200, json={"gridRows": 5, "gridCols": 15})
+        raise httpx.ConnectError("unreachable")
+
+    found = asyncio.run(discovery.discover(
+        ["http://192.168.1.10:8080"], transport=httpx.MockTransport(lan), mdns=False))
+    assert [f["url"] for f in found] == ["http://192.168.1.60:8080"]
+
+
+# ---------------------------------------------------------------------------
+# mDNS: in-flight resolves are gathered before zeroconf closes, with the FULL
+# window as their timeout (both fake modules — never a real multicast socket)
+# ---------------------------------------------------------------------------
+def test_mdns_resolves_are_gathered_before_zeroconf_closes(monkeypatch):
+    """Resolves used to be fire-and-forget: an answer landing after the browse
+    window was silently dropped, on top of a closed zeroconf — and the resolve
+    timeout was only window*500 ms, HALF the window."""
+    import sys
+    import types
+
+    window = 0.05
+    seen = {}
+
+    class _Info:
+        server = "splitflap-gw.local."
+        port = 80
+
+        def parsed_scoped_addresses(self):
+            return ["192.168.1.77", "fe80::1"]      # the v6 one must be skipped
+
+    class _AZC:
+        def __init__(self):
+            self.zeroconf = object()
+            self.closed = False
+
+        async def async_get_service_info(self, service_type, name, timeout=3000):
+            seen["timeout"] = timeout
+            await asyncio.sleep(window * 2)         # lands AFTER the browse window
+            assert not self.closed, "the resolve outlived zeroconf"
+            return _Info()
+
+        async def async_close(self):
+            self.closed = True
+
+    state = types.SimpleNamespace(Added=object(), Removed=object())
+
+    class _Browser:
+        def __init__(self, zc, service_type, handlers=()):
+            for h in handlers:
+                h(zc, service_type, "splitflap-gw._http._tcp.local.", state.Added)
+                h(zc, service_type, "a printer._http._tcp.local.", state.Added)
+
+        async def async_cancel(self):
+            pass
+
+    zc_mod = types.ModuleType("zeroconf")
+    zc_mod.ServiceStateChange = state
+    zc_async = types.ModuleType("zeroconf.asyncio")
+    zc_async.AsyncServiceBrowser = _Browser
+    zc_async.AsyncZeroconf = _AZC
+    monkeypatch.setitem(sys.modules, "zeroconf", zc_mod)
+    monkeypatch.setitem(sys.modules, "zeroconf.asyncio", zc_async)
+
+    urls = asyncio.run(discovery._mdns_candidates(window=window))
+    assert urls == ["http://192.168.1.77"], "the late resolve was dropped"
+    assert seen["timeout"] >= int(window * 1000), \
+        "the resolve timeout must cover the whole window, not half of it"

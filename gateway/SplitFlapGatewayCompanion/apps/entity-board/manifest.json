@@ -1,0 +1,37 @@
+{
+  "id": "entity-board",
+  "name": "Home Assistant",
+  "icon": "🏠",
+  "description": "Home Assistant entity states as rows on the split-flap wall",
+  "type": "functional",
+  "surfaces": [
+    "flap",
+    "matrix"
+  ],
+  "lcd_ops": true,
+  "refresh_interval": 15,
+  "loop_delay": 8,
+  "category": "other",
+  "settings": [
+    {
+      "key": "config",
+      "label": "Entities",
+      "type": "entity_table",
+      "searchUrl": "/ha_entities",
+      "resultKey": "results",
+      "note": "Search to add entities. Reorder with the arrows, rename, and set thresholds with a polarity: the ◦/</> button picks Band (green inside Low…High), Lower-is-better (green below Low, amber to High, red above) or Higher-is-better (mirrored). In the add-on this works automatically; standalone Docker needs COMPANION_HA_URL + COMPANION_HA_TOKEN set."
+    },
+    {
+      "key": "columns",
+      "label": "Columns on the Matrix panel (0 = auto)",
+      "type": "number",
+      "default": "0",
+      "min": "0",
+      "max": "6",
+      "step": "1",
+      "stepper": true
+    }
+  ],
+  "min_cols": 12,
+  "min_rows": 1
+}

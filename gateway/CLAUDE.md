@@ -18,15 +18,16 @@ interface, update the contract first and re-run its §10 checks.
 
 | Folder | What | Notes |
 |---|---|---|
-| `SplitFlapGateway/` | ESP32 gateway firmware (upstream clone, v3.17.0) | PlatformIO. Waveshare ESP32-S3-RS485-CAN. `openapi.yaml` is the REST spec. |
-| `SplitFlapUniversalFirmware/` | Module firmware (upstream clone) | Runs on each flap module. |
-| `SplitFlapGatewayCompanion/` | Companion app (upstream clone, v2.10.23) | Runs on the Pi. It's the only writer to the flaps. |
+| `SplitFlapGateway/` | ESP32 gateway firmware (v3.17.0) | PlatformIO. Waveshare ESP32-S3-RS485-CAN. `openapi.yaml` is the REST spec. |
+| `SplitFlapUniversalFirmware/` | Module firmware | Runs on each flap module. |
+| `SplitFlapGatewayCompanion/` | Companion app (v2.10.23) | Runs on the Pi. It's the only writer to the flaps. |
 | `mock-gateway/` | **Ours.** Mock gateway, contract, HA package, reference client | Lets the software side build with no hardware. |
 | `../Kevin Splitflap/PCBs/` | Module driver PCB (ATtiny1616, KiCad) | |
 | `../adamGsplitflap/` | Original module hardware/protocol (Adam G Makes) | |
 
-The three upstream clones are third-party repos (CC BY-NC-SA 4.0). Keep our changes minimal and
-isolated so upstream updates can still be merged.
+The gateway, module firmware and Companion folders are tracked directly in this repo and licensed
+CC BY-NC-SA 4.0 (see each folder's README/LICENSE). Keep changes to them focused and
+well-commented so they're easy to review.
 
 ## Architecture (decided)
 
@@ -127,7 +128,6 @@ behaviour is unchanged.
 - Per-state LED colours chosen by the Pi (the API already accepts `color` and `brightness`).
 - An HA `light` entity for the strip via MQTT discovery.
 - A physical button on GPIO1 (for example, push-to-talk or clearing the wall).
-- Contribute the LED feature upstream to `SplitFlapGateway` once it's stable.
 
 ## Gotchas learned (keep these in mind)
 - **A message sent during maintenance is dropped.** The gateway returns 503, the Companion does not

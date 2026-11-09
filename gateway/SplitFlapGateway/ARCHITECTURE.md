@@ -1,0 +1,470 @@
+# Architecture Notes
+
+This document captures the reasoning behind non-obvious design decisions in the
+Split-Flap Gateway firmware, so future maintainers (including future-you) don't
+have to re-derive them.
+
+## Task model
+
+The firmware runs five FreeRTOS tasks plus `loop()`:
+
+| Task | Core | Priority | Responsibility |
+|---|---|---|---|
+| `taskRS485` | 0 | 3 | Byte accumulator for the RS-485 bus |
+| `taskRTC` | 0 | 2 | Reads the PCF85063 RTC every second -- and nothing else (see below) |
+| `taskWeb` | 0 | 2 | `server.handleClient()` loop |
+| `taskNetwork` | 1 | 1 | WiFi/MQTT/NTP, status publishing, registry persistence, the quiet-time schedule |
+| `taskOTA` | 1 | 1 | `ArduinoOTA.handle()` every 100ms |
+| `loop()` | — | — | Watchdog check every 30s |
+
+Shared state is protected by four mutexes: `sfMutex` (module registry),
+`msgMutex` (RS-485 ring buffer), `timeMutex` (time formatting — newlib time
+functions are not thread-safe), and `mqttQMutex` (MQTT outbound queue). Only
+`taskNetwork` ever calls `mqtt.publish()`.
+
+## Watchdog
+
+`loop()` checks each task's heartbeat timestamp every 30 seconds and reboots if
+any task has gone silent past its threshold (RS485/Net = 30s, Web = 120s). It
+also force-reboots if free heap drops below 20KB. Thresholds differ because the
+web task can legitimately block for several seconds while streaming a large page
+to a slow client.
+
+Two boot-time guards prevent false reboots during startup:
+
+- **60-second grace period.** Stall detection is skipped for the first 60s of
+  uptime. The one-time FATFS format (first boot after flashing) and WiFi/MQTT
+  bring-up happen in this window and can briefly skew task scheduling; rebooting
+  then would be a false positive. The low-heap emergency check still runs during
+  the grace period.
+- **Future-timestamp guard.** Each heartbeat check treats a timestamp "in the
+  future" (`wdg > now`, possible only from transient boot-time skew) as healthy,
+  rather than letting the unsigned subtraction underflow to a huge value that
+  would look like a 49-day stall.
+
+## Web server: why the synchronous `WebServer`, not `ESPAsyncWebServer`
+
+The firmware uses the Espressif-maintained synchronous `WebServer` that ships
+with the ESP32 Arduino core. This was a deliberate choice, re-evaluated after a
+`Web=0` watchdog stall was observed (the web task blocked inside
+`server.handleClient()` on a half-open client socket — a known limitation of the
+synchronous server when a browser opens a speculative TCP connection and never
+completes the request).
+
+`ESPAsyncWebServer` would eliminate that specific stall, but it carries its own
+trade-offs that, for a single-user home-network gateway, were judged not worth
+the risk:
+
+- **Third-party maintenance risk.** The async server is a community library
+  (the actively maintained fork is currently `mathieucarbou/ESPAsyncWebServer`),
+  not part of the Espressif core. The sync `WebServer` ships with the core and
+  has a guaranteed maintenance path.
+- **No blocking allowed in handlers.** Async callbacks run on the lwIP (`tiT`)
+  thread. The `/api/flap/version` and `/api/flap/dump` endpoints currently wait
+  up to ~500ms–1s for a module to reply over RS-485. That pattern is illegal in
+  async and would require redesigning those two endpoints to return immediately
+  and have the client poll (or a deferred-response mechanism).
+- **Tighter stack / thread-safety constraints.** Running on the lwIP thread
+  means limited stack for the large `char` buffers used in handlers, and every
+  access to shared state (`sfModules`, etc.) crosses a thread boundary —
+  mutex mistakes become hard crashes rather than recoverable stalls.
+- **Heavier, less predictable heap use.** Async buffers responses and manages
+  its own allocations; per-connection transient footprint is larger. After the
+  effort spent getting heap dead-stable (see below), the predictability of the
+  sync server is a feature.
+- **The streaming response needs rework either way.** `handleRoot` streams the
+  UI as ~154 `sendContent()` chunks; async uses a pull-based chunked-response
+  callback, a different control flow.
+
+### Mitigation in place
+
+Rather than migrate, `taskWeb` proactively force-closes any client connection
+that lingers longer than 8 seconds (`c.stop()`), reaping the half-open
+speculative sockets (Chrome/Safari behavior) that cause the wedge before they
+can block the send path. The 120s web watchdog remains as the safety net. A
+watchdog reboot in this scenario is *correct recovery* — a task wedged in a
+kernel syscall cannot be interrupted from itself — and the device survived 6.5
+hours before the single observed stall, recovering cleanly.
+
+**Revisit trigger:** if `Web=0` stalls recur despite the 8s reaper, the async
+migration becomes justified. The real work there is redesigning the two blocking
+endpoints, not the boilerplate.
+
+### The corollary: never block `taskWeb` (v3.4)
+
+Choosing the one-connection-at-a-time server makes a rule out of what would
+otherwise be a style preference: **a handler that blocks blocks the whole web UI.**
+Two handlers were violating it, and both produced real failures.
+
+**1. Batch pacing (`/api/rs485/batch`).** The handler produced its `step_ms` stagger
+with `delay()` between frames. That is a cascade-length sleep — up to the old 8 s cap —
+inside a handler, during which nothing else could be served and further connections
+piled up in lwIP's accept queue holding TCP window buffers. On a companion driving
+animations this is not an edge case; it is the steady state.
+
+The fix moves the *pacing* off `taskWeb` without moving the *work*: the handler stamps
+each frame with a due time (`millis()` timebase), pushes it into a small PSRAM ring
+(`TxQItem`, `rs485.h`), and returns. `taskRS485` — which already wakes every 5 ms —
+drains whatever is due on each tick. The 5 ms tick quantises `step_ms`, which is 5–30 ms
+anyway, so the cascade is visually identical.
+
+The ring is **SPSC**: `taskWeb` is the only producer, `taskRS485` the only consumer,
+guarded by `txQMutex`. That mutex is deliberately **released before** `rs485Send` runs
+(which takes `txMutex`), so the two locks are never nested and the producer is never
+stalled for the duration of a send. Due-time comparison is wrap-safe
+(`(int32_t)(now - dueMs) >= 0`), so the 49-day `millis()` rollover is a non-event.
+
+The trade-offs are deliberate and worth knowing. `200` now means **accepted**, not
+transmitted. The ring holds 127 frames (one slot kept empty as the full/empty
+discriminator); a frame that cannot be queued — `step_ms == 0`, longer than
+`TXQ_FRAME_MAX` (48 B), or a full ring — is sent **inline, immediately**. So a cascade
+longer than 127 paced frames stops being paced past that point, and an over-long frame
+jumps ahead of frames still waiting in the ring. Display/index/home frames are all far
+under 48 bytes and a whole-page redraw is one frame per module, so neither case arises
+below a 127-module wall; both are graceful (the frames still go out) rather than errors.
+If the PSRAM allocation fails, `txQueue` is `NULL`, every enqueue returns false, and the
+endpoint degrades to sending everything inline.
+
+**2. The module list (`/api/flap/modules`).** It sent one `sendContent()` per module.
+Each of those can block on a slow client up to the socket timeout (3 s), so the total
+scaled with module count: ~41 modules × 3 s crosses the 120 s web-stall threshold, the
+supervisor sees `Web=0` and **reboots the gateway**. The bug was latent for as long as
+it was because it simply cannot fire below ~40 modules. The response is now coalesced
+into ~1400 B chunks, feeds `wdgWebMs` on each flush, and bails out early once
+`server.client().connected()` goes false.
+
+The general lesson, worth applying to any new handler: if it can sleep, wait on a
+module, or scale its send count with the size of the registry, it belongs on another
+task or in a chunked loop that feeds the watchdog.
+
+## Multi-language UI (v3.5)
+
+The dashboard ships every language in **one firmware image**. That is only affordable
+because the translatable text is a small slice of the page: 109 KB of HTML+CSS+JS, but
+only ~10 KB of it is English *words* (~310 strings). Duplicating the **page** per
+language would cost ~109 KB each; duplicating the **text** costs ~1.5 KB gzipped each.
+So there is one page, plus one gzipped dictionary per language in flash, and the browser
+fetches only the one it needs (`GET /lang/<code>`).
+
+**English is the page.** It is not a dictionary — it is the text already in the markup.
+That makes the default path free (no fetch, no JS dependency), makes English the natural
+per-key fallback, and means a failed fetch degrades to English rather than to a broken
+page. A dictionary may therefore be *partial*: the en-GB dictionary is 7 entries, because
+only 7 strings differ.
+
+**The key is the English text**, not an invented id. That is safe here only because the
+UI has no homographs -- every string that repeats, or appears under two different tags,
+means the same thing in both places. It buys a lot: the markup needs **no `data-i18n`
+tagging at all**, so 200+ HTML strings are translated without touching the page.
+
+Two runtime mechanisms, because neither alone is sufficient:
+
+- **A DOM walk + `MutationObserver`** translates *text nodes*. The observer is the part
+  that matters: most of this UI's content (module cards, the flap map, the wizard) is
+  built by JS *after* load, and a one-shot walk would miss all of it.
+- **`t("...")`** translates messages the JS *composes* -- `"Error: " + e`. A DOM walk only
+  ever sees the finished string ("Error: Bad JSON"), which is not a key, so these have to
+  be wrapped at the source. `t()` looks up the *trimmed* key and re-attaches the edge
+  whitespace, so `t("Error: ")` works and translators never have to preserve a trailing
+  space.
+
+Re-running the walk is harmless: a translated node is no longer a key, so it is a no-op.
+
+**Wrapping is context-aware, and that is not fussiness.** Only literals inside a
+`.textContent` assignment, `confirm()` or `alert()` are wrapped -- because JS strings that
+*look* like prose are routinely code. `'nav a'` is a `querySelector`; `'HOME         '` is
+a bus-monitor decode label whose padding keeps the log's monospace columns aligned. A
+naive "wrap every prose-looking literal" pass would have translated both and broken the
+page. For the same reason the runtime **skips `#log` entirely**: the monitor renders
+protocol, not chrome.
+
+Language, highest priority first:
+
+1. **`?lang=fr`** -- lets the companion request a language for an embedded view *without*
+   touching the user's own preference, so it is deliberately **not** persisted.
+2. **The Settings override** (`localStorage`).
+3. **`navigator.languages`** -- the "Auto" default. This is why the gateway stores **no
+   language state at all**: no config field, no NVS write, no API. It mirrors what the UI
+   already does with the light/dark theme, which follows the OS with no setting.
+4. **English.**
+
+The one subtlety worth protecting (there is a test for it): an `en-US` browser must
+resolve to the **base** English, not to `en-GB` merely because that is the only other
+`"en"` on the list. Resolution is therefore exact-match, then base-language, then any
+variant -- with `en` itself on the list as the base. See `tools/i18n_test.js`.
+
+`Content-Encoding: gzip` **is** correct on `/lang/<code>`, and is exactly what must
+*not* be sent for the companion settings blob: here the gzip is a transfer encoding of
+JSON that the browser inflates before `fetch().json()` sees it; there, the gzip *is* the
+payload.
+
+## Companion URL: why it is persisted on a debounce (v3.4)
+
+`cfg.companionUrl` is the one config value written by a *machine* rather than a person,
+on a heartbeat, and that changes what "persist on change" costs. Point two companions at
+one gateway and each re-registers its own URL every ~30 s, so the value flips back and
+forth forever — and the original `saveConfig()`-on-change turned that into an NVS write
+every ~30 s for the life of the device. This was observed in the wild, not theorised.
+
+So the URL is applied to RAM immediately (the dashboard's companion tab is live at once)
+while the **flash write waits for the value to hold still** for
+`COMPANION_SAVE_DEBOUNCE_MS` (120 s), with the clock **restarting on every change**. The
+debounce is deliberately longer than a heartbeat, which means a *contested* URL is never
+written to flash at all — the correct outcome, since nothing durable should be committed
+for a value two clients are still arguing over. A single genuine change persists after
+two quiet minutes, and a companion re-registers within a heartbeat of any reboot, so
+nothing is actually lost by not persisting a contested one.
+
+The companion's **status** and advertised **tabs** are runtime-only for the same reason,
+one step further: they are re-sent on every heartbeat, so there is nothing a flash write
+would buy.
+
+## Memory management
+
+The gateway is intended to run for weeks unattended, so heap stability is
+critical. Several issues were found and fixed:
+
+- **`rtcFormatTime` `setenv` leak (root cause of the long-standing drain).**
+  The function originally called `setenv("TZ", ...)` twice per invocation to
+  convert stored-UTC RTC time to local time. On ESP32 newlib, repeated `setenv`
+  leaks heap (~66 bytes/pair). Called every 10s by `mqttPublishStatus` and on
+  every browser status poll, this produced the observed ~132 bytes/30s constant
+  decline. **Fix:** `TZ` is set exactly once at boot (`loadConfig`) and again
+  only when the timezone changes (`handleApiConfigSettings`). `rtcFormatTime`
+  now computes the UTC epoch manually (a portable days-since-1970 algorithm,
+  since `timegm()` is not exposed in ESP32 newlib) and applies the local zone
+  with `localtime_r()` — no per-call environment manipulation.
+- **`JsonDocument` in hot paths.** ArduinoJson 7's `JsonDocument` allocates its
+  pool from the heap on every call; on ESP32's `dlmalloc` this fragments and
+  trends `getFreeHeap()` downward. `mqttPublishMsg` (every RS-485 frame),
+  `mqttPublishStatus` (every 10s) and `handleApiStatus` (every browser poll)
+  were converted to `snprintf` into stack buffers. The remaining `JsonDocument`
+  uses are in on-demand REST handlers, where fragmentation impact is negligible.
+- **Per-message `String` allocations** in `ringDrain` and `sfParseResponse`
+  were replaced with stack `char` arrays.
+- **`handleApiModules`** reserves its output `String` up front
+  (`out.reserve(sfModuleCount * 220)`) to avoid realloc churn, and
+  `loadUnprovisioned` browser polling was slowed from 3s to 10s (it was doubling
+  the `handleApiModules` call rate).
+
+After these fixes, heap holds stable (observed ~139KB steady-state) with only
+normal allocator sawtooth that recovers on traffic.
+
+## Sticky module persistence
+
+The known-module registry survives reboots so the dashboard isn't empty after a
+power cycle. Storage uses a **FATFS file** (`/modules.dat`) in the FATFS
+partition that already exists in the default "16M Flash (3MB APP/9.9MB FATFS)"
+scheme -- deliberately NOT a custom partition table or an enlarged NVS region,
+to keep flashing simple and avoid erasing config on partition changes.
+
+- Only durable fields are stored (id, serial, provisioned, fwVersion,
+  lastSeenEpoch). The transient display state and on-demand EEPROM dumps are not
+  persisted.
+- `lastSeenEpoch` is an RTC wall-clock timestamp (not `millis()`, which resets),
+  so "last seen N hours ago" is meaningful across reboots. Entries older than
+  `MODULE_STALE_SECS` (6h) are pruned on load; at runtime (once a minute) a stale
+  entry is first **probed** with a version query and dropped only if it stays
+  silent past a grace window, so a quiet-but-present module is never purged. The
+  runtime probes are spaced out and sent in bounded batches -- a module answers a
+  bare version query synchronously, so firing them back-to-back would make each
+  reply collide with the next probe on the half-duplex bus.
+- Writes are atomic: the file is written to `/modules.dat.tmp` then renamed over
+  the live file, so a crash mid-write can't corrupt the existing good copy.
+- Saves are debounced (5s) and only triggered when the registry actually changes
+  (new module, provision, deprovision), limiting flash wear.
+- "Identify All" (`POST /api/flap/identify`) wipes both the in-memory list and
+  the file, then broadcasts `m*v` to rebuild from scratch.
+
+`MAX_MODULES` is 255, covering module IDs 0-254 (ID 255 is reserved as the
+empty-slot / unprovisioned sentinel). With the EEPROM dump cache removed from
+the in-RAM struct (dumps are now fetched on demand), each `SFModule` is ~48
+bytes, so the full registry is ~12 KB of RAM and the persisted file is ~9 KB --
+both comfortable on the 8 MB-PSRAM / 512 KB-SRAM ESP32-S3. The largest transient
+cost is the `handleApiModules` JSON response (~33 KB heap String at 255
+modules), which is `reserve()`d up front and freed immediately after each send.
+
+A deliberate design point: the RS-485 **frame buffers** (`MSG_MAX_BYTES` = 256
+for the monitor ring, `TX_MAX_BYTES` = 768 for outbound frames, `MQTT_BUF_SIZE`
+= 768) are sized by the **largest single frame**, not by module count. The
+worst-case frame is a full 64-flap EEPROM restore (`mXW<sn>:<offset>:<steps>:<map>`,
+~620 bytes; on firmware v31+ an optional `:<flapCount>:<flapChars>` tail adds up
+to ~67 bytes, still well inside `TX_MAX_BYTES`) -- a frame always targets one
+module, so raising the module ceiling from 200 to 255 does not change them.
+Three-digit IDs (vs two) add at most ~1 byte to a handful of commands, still far
+inside `TX_MAX_BYTES`. These buffers were sized for the frame, and the frame is
+what bounds them.
+
+## Companion settings blob (v3.1)
+
+The companion app parks its settings on the gateway (`GET`/`PUT
+/api/companion/settings`) so its container can be stateless. The gateway is a
+**dumb blob store**: the payload is `gzip(minified JSON)` whose schema belongs
+entirely to the companion, and the firmware stores the bytes verbatim, hands them
+back byte-for-byte, and never parses them. That boundary is the whole point --
+the companion's schema can evolve freely without ever touching firmware.
+
+It reuses the FATFS partition and the same temp-file-then-rename atomicity as the
+module registry above (`/compset.gz`, via `/compset.tmp`), so an interrupted
+upload cannot corrupt a good copy. The blob is capped at 64 KB; real ones are
+1-2 KB, and the companion debounces its writes, so flash wear is negligible.
+Because it lives on FATFS rather than in the app partition, it survives OTA.
+
+The non-obvious part is **receiving the body at all**. The synchronous
+`WebServer` copies a non-form request body into a `String` via its `char*`
+constructor, so `server.arg("plain")` stops at the first NUL byte -- and a gzip
+stream carries one at offset 3 (the FLG header byte). A 127-byte blob would
+arrive as 3 bytes. So the PUT is registered with the four-argument
+`server.on(uri, HTTP_PUT, fn, ufn)` overload: supplying that upload callback is
+what makes `WebServer` route the request down its **raw** path
+(`RequestHandler::canRaw()` is true whenever a handler has a `ufn` and isn't a
+GET), streaming the body to the callback in `HTTP_RAW_BUFLEN` (1436 B) chunks
+that we append straight to the temp file. The final handler then sends the
+response, reading a status the raw callback left behind.
+
+Two consequences worth remembering: the raw callback **cannot stop** the server's
+read loop, so a request that fails validation early (too large, no filesystem)
+must keep draining chunks and simply drop them, or the response never reaches the
+client; and the response is deliberately served as `application/gzip` **without**
+`Content-Encoding: gzip`, because those bytes are the payload rather than a
+transfer encoding of it -- declaring the encoding would make HTTP clients
+transparently gunzip the body, leaving the companion to decompress plain JSON.
+
+## Time handling
+
+The RTC stores UTC. Local time is derived at format time using the configured
+POSIX TZ string (DST-aware). The `timeMutex` serialises all time-formatting
+calls because newlib's time functions and the `TZ` environment are process-wide
+and not thread-safe. The NTP server is configurable (default `pool.ntp.org`);
+`configTime` is always called with a zero offset so the system clock is UTC and
+`mktime` acts as `timegm`, avoiding double-offset bugs.
+
+## Diagnostics
+
+The periodic `[WDG]` line and the boot banner are the primary field-debugging
+surface. Boot prints `esp_reset_reason()` (distinguishing a firmware `PANIC`
+from a `BROWNOUT` power fault from a clean `POWERON`) plus a heap/PSRAM/flash
+snapshot. The `[WDG]` line, emitted every 30 s, carries free heap, minimum-ever
+heap, largest allocatable block and a derived fragmentation %, per-task stack
+high-water marks (the early-warning signal for the stack-canary crash class),
+bus RX/TX counters, a parse-reject counter (rising = bus collisions or noise),
+WiFi RSSI, and MQTT state. Stall reboots name the offending task and its age;
+low-heap reboots log the heap value. None of this requires the serial-debug
+toggle -- it is always on, because the situations it diagnoses (unexpected
+reboots, slow memory leaks, bus corruption) are exactly the ones where you
+cannot reproduce on demand.
+
+## Protocol note: dump-by-serial vs dump-by-id
+
+`/api/flap/dump` prefers the serial-number command `mXD<sn>` only when the
+module reports firmware **v15 or newer**, because `mXD` does not exist in older
+firmware. For older modules (or if the SN-based request times out) it falls back
+to the ID-based `m<id>d`. This keeps the EEPROM inspector working across all
+firmware versions.
+
+## Module self-diagnostics
+
+The 🩺 diagnostics action (module firmware v26+) runs three tests in the fixed
+order **Q → T → M**, reusing the existing reply-capture machinery rather than
+adding a parallel path. The **`Q` stats snapshot** is instant and captured
+synchronously in the request handler, exactly like an EEPROM dump: arm a wait
+slot, send the frame, spin on a ready flag with the web-task watchdog touched.
+The **`T` Hall self-test** and **`M` mechanical test** are motor-driven (~2 and
+~6+ revolutions), so they share a single async job — only one motor test is ever
+in flight. The browser sequences them: `POST /api/flap/diag` returns the
+snapshot and starts `T`; once the poll reports `T` done it calls
+`POST /api/flap/diag/mech` to start `M`. The `M` job deadline scales with the
+requested rotation count (5–20 on firmware v29+), because the motor time does.
+
+The reply frames (`m<id>Q:…`, `m<id>T:…`, `m<id>M:…`) are parsed in
+`sfParseResponse` alongside `v`/`d`/`A`, into per-test capture globals; the `M`
+parser keeps the trailing comma-separated per-rotation list as its greedy last
+field. `GET /api/flap/diag/status` is consume-on-read (it reports `done` once,
+then `idle`), so the UI poller is built to match: one request in flight at a
+time (self-scheduling, not a fixed interval), firing its terminal callback
+exactly once, with a generation counter that cancels any stale poller left by a
+new run or a closed modal. That combination is what stops a late `idle` read
+from clobbering a result the module actually returned.
+
+## Restore on boot: why the gateway locks itself (v3.12)
+
+`restore.cpp` replays a stored calibration backup to every module at boot (or on
+`POST /api/restore/run`). Three decisions there are worth recording.
+
+**The lock is global, and it is held from `setup()`.** The user's requirement was that
+nothing else be processed until the restore completes, and the reason is physical: a
+display frame, a home, or a companion batch arriving mid-restore would interleave with
+`mXW` frames on the half-duplex bus and with the read-back waits. So `restoreBusy()` is
+true from the moment `restoreInit()` arms the run -- before any task is running -- and
+`webInit()` wraps every bus-touching handler in `BUSGATED()`, which answers 503 instead of
+running it. MQTT commands are dropped in `mqttCallback`. This is deliberately broader than
+maintenance mode (which only gates MQTT): here the gateway's own REST API is refused too.
+The gateway's *internal* bus traffic pauses as well (the flap-set trickle, stale probes,
+the quiet schedule), for the reason below.
+
+**Verification captures ANY reply.** The restore addresses modules by serial and does not
+know which id a read-back will carry (the backup's id may differ from the module's current
+one, and it may just have been re-provisioned). So it arms the shared dump slot with
+`SF_WAIT_ANY`, and `sfParseResponse` records the answering id and, for an `A` reply, its
+serial in `gDump.gotId` / `gDump.gotSN`. That wildcard is safe only because the run has the
+bus to itself -- which is why the trickle's `m<id>A` is paused: an unsolicited `A` landing
+in a verify window would be read as the wrong module's EEPROM.
+
+**It cannot hang.** "Block everything" is only acceptable if the block is guaranteed to
+end. Every wait is bounded (`RESTORE_VERIFY_TIMEOUT_MS` x `RESTORE_VERIFY_TRIES`, plus one
+repair round), a silent module is counted as missing rather than waited for, a cancel is
+honoured between steps, and a run that cannot even start (no usable file) logs and does
+NOT lock. A re-provisioned module, which restarts and is deaf for `MODULE_POSTPROV_VER_MS`
+plus its staggered start-up, is given a `readyAt` deadline rather than a retry storm.
+
+The backup is parsed with ArduinoJson into **PSRAM** (a 64-module backup is ~45 KB, and
+the internal heap is what WiFi lives on) and the document stays alive for the whole run,
+so the write and verify phases iterate the same entries. The upload is validated by the
+same parser before it is renamed over the live file, so a bad upload never replaces a
+good backup.
+
+### What the modules taught the restore (v3.12.0, first field run)
+
+Two things the first runs on a real wall showed, both now encoded in `restore.cpp`:
+
+- **A module cannot ingest a long `mXW` at line speed.** It writes each map entry to
+  EEPROM as it parses it, its receive buffer overflows, entries vanish, and it goes deaf
+  for ~6 s. Measured on v31 firmware: a 434-byte frame left 20 of 42 entries. So the map
+  is not sent inline. `mXW` carries offset, steps and the flap set (and clears the map),
+  `RESTORE_MXW_SETTLE_MS` covers the erase, then each entry goes as its own short
+  `m<id>w<i>:<p>` frame `RESTORE_ENTRY_GAP_MS` apart -- the wizard's frames. Verification
+  waits `RESTORE_SETTLE_MS` after a module's last write. A 15-module wall restores and
+  verifies in ~33 s.
+- **A truncated `A` tail must not be believed.** A long `A` reply sometimes loses its end
+  in transit, parsing as `64:` plus a handful of characters. Recording that poisoned the
+  registry and the backups, and a restore then wrote the truncated set into the module.
+  `sfParseResponse` now treats a tail whose character count does not match its flap
+  count as "not reported", and the restore neither writes nor verifies such a set.
+
+## Module registry: permanent, re-queried, never pruned (v3.12)
+
+Until v3.12 a module not heard from in `MODULE_STALE_SECS` was probed and, if silent,
+dropped -- at load and once a minute. That made `/api/capabilities` incomplete after a
+reboot until every module had been asked again, and it forgot modules that were merely
+displaying a static message (modules only speak when addressed). The registry is now
+permanent: `sfModulesLoad` never prunes by age, and `sfModulesPruneStale` is a periodic
+RE-QUERY -- a bare version query, `MODULE_PROBE_BATCH` per cycle, spaced so the instant
+replies do not collide -- that refreshes the record and notices a swapped or re-flashed
+module. After `MODULE_PROBE_MAX_TRIES` unanswered queries the module is left alone for
+`MODULE_REPROBE_BACKOFF_MS` and then asked again. Only Identify All, De-provision, or a
+corrupt record removes an entry. The persisted flap sets are therefore always present
+at boot, which is what makes capabilities complete from the first second.
+
+## Browser OTA: never add a header per chunk (v3.12)
+
+The multipart upload callback (`handleOTAUpload`) ran once per received chunk, and it began
+with `server.sendHeader("Access-Control-Allow-Origin", "*")`. In the ESP32 core 3.x
+`WebServer::sendHeader()` appends a heap-allocated `RequestArgument` (a node plus two
+Strings) to a linked list that is only released when the response is sent -- after the whole
+body. A 1.48 MB image arrives in ~1000 chunks of 1436 bytes, so ~1000 nodes accumulated:
+~80 KB of a ~100 KB heap, min-free heap under 1 KB, and the connection reset at 1.2-1.3 MB
+on every full-size image, at any upload rate (a rate-limited upload died the same way). The
+symptom was easy to misread as the well-known "receive buffers pile up" story, which the
+release notes had blamed for two versions. The header now goes on the response, once. Rule
+for every chunked callback (upload or raw): no `sendHeader()`, no allocation that outlives
+the chunk. A full image now uploads in ~10 s with ~80 KB of heap free throughout.

@@ -1,0 +1,266 @@
+"""Precious metal spot prices, USD per troy ounce (keyless: gold-api.com)."""
+
+
+# =============================================================================
+# SHARED — the spot DATA both surfaces read: gold-api.com prices and the
+# local-currency conversion.
+# =============================================================================
+
+
+def _local_currency(i18n, get_location):
+    """gold-api.com quotes in USD/oz; show the local currency (Location -> Language
+    -> USD) by converting through a keyless ECB rate. Falls back to USD if no
+    rate. Returns (CCY code, USD->CCY rate)."""
+    loc = get_location() if get_location is not None else None
+    ccy = loc.get('currency') if isinstance(loc, dict) and loc.get('ok') else None
+    if not ccy and i18n is not None:
+        ccy = i18n.base_currency()
+    ccy = (ccy or 'USD').upper()
+    rate = 1.0
+    if ccy != 'USD':
+        try:
+            import requests
+            rate = float(requests.get('https://api.frankfurter.app/latest',
+                                      params={'from': 'USD', 'to': ccy}, timeout=8).json()['rates'][ccy])
+        except Exception:
+            ccy, rate = 'USD', 1.0
+    return ccy, rate
+
+
+def _spot_price(sym):
+    """One spot price in USD/oz from keyless gold-api.com ('XAU'/'XAG'), or None."""
+    import requests
+    try:
+        return requests.get(f'https://api.gold-api.com/price/{sym}', timeout=8).json().get('price')
+    except Exception:
+        return None
+
+
+# =============================================================================
+# SPLIT-FLAP — fetch() and its helpers, unique to the character-grid flap wall.
+# =============================================================================
+
+
+def fetch(settings, format_lines, get_rows, get_cols, i18n=None, get_location=None):
+    rows, cols = get_rows(), get_cols()
+
+    def t(s):
+        return i18n.t(s, "metals") if i18n is not None else s
+
+    def n(v, d):        # locale decimal/grouping (2,345 vs 2.345 vs 2 345)
+        return i18n.number(v, d) if i18n is not None else f'{v:,.{d}f}'
+
+    ccy, rate = _local_currency(i18n, get_location)
+    # With i18n the display can render € £ ¥ (Windows-1252); without it the modules
+    # are the basic charset, so use '$' for USD and the ASCII ISO code otherwise.
+    cur_sym = i18n.currency_symbol(ccy) if i18n is not None else ('$' if ccy == 'USD' else ccy)
+    sep = '' if cur_sym != ccy else ' '
+
+    def fmt(p):
+        if not isinstance(p, (int, float)):
+            return '--'
+        p = p * rate
+        body = n(p, 0) if p >= 100 else n(p, 2)
+        return f'{cur_sym}{sep}{body}'
+
+    try:
+        gold, silver = _spot_price('XAU'), _spot_price('XAG')
+        if gold is None and silver is None:
+            return [format_lines('Metals', t('Offline'), '')]
+        # Localized names vary in length — pad both to the same width so they align.
+        g, s = t('Gold'), t('Silver')
+        w = max(len(g), len(s))
+        if rows == 1:
+            pages = []
+            if gold is not None:
+                pages.append(f'{g} {fmt(gold)}/OZ'[:cols].center(cols))
+            if silver is not None:
+                pages.append(f'{s} {fmt(silver)}/OZ'[:cols].center(cols))
+            return pages
+        # Wide wall: both metals on ONE line, so the width carries them instead of two
+        # short lines stranded in the middle of it.
+        if gold is not None and silver is not None:
+            one = f'{g} {fmt(gold)}/OZ   {s} {fmt(silver)}/OZ'
+            if len(one) <= cols:
+                return ([format_lines(f'{t("Spot price")} /OZ', one)] if rows >= 3
+                        else [format_lines(one)])
+        if rows == 2:
+            return [format_lines(f'{g:<{w}} {fmt(gold)}', f'{s:<{w}} {fmt(silver)}')]
+        return [format_lines(f'{t("Spot price")} /OZ', f'{g:<{w}} {fmt(gold)}', f'{s:<{w}} {fmt(silver)}')]
+    except Exception:
+        return [format_lines('Metals', t('Offline'), '')]
+
+
+# =============================================================================
+# MATRIX PANEL — fetch_canvas() and its helpers, unique to the LED panel.
+#
+# Two spot-price rows — GOLD in gold, SILVER in silver, prices right-aligned in
+# white — under a quiet 'SPOT /OZ' strip where the height allows. Solid black
+# background; adaptive down to 64x32.
+# =============================================================================
+
+
+_CV_TEXT = (238, 238, 244)                 # primary text
+_CV_DIM = (150, 150, 158)                  # secondary text
+_CV_GOLD = (238, 196, 64)                  # the metal itself names the row's color
+_CV_SILVER = (200, 206, 218)
+
+
+def _cv_metals_gtext(canvas, head, rows):
+    """Two spot-price rows drawn with the LCD's on-device gtext op instead of a pushed pixel
+    frame: a centered 'SPOT PRICE /OZ' strip, then each metal named in its own color on the
+    left with the price right-aligned in white. Sizes are a fraction of the panel, so it fills
+    the wall at native resolution and previews at 256x160."""
+    W, H = canvas.width, canvas.height
+    canvas.clear((0, 0, 0))
+    pad = max(6, int(W * 0.035))
+    hsize = canvas.fit_gtext(head, W - 2 * pad, int(H * 0.15))
+    # A metal name on the left and a right-aligned price share one line, so on a
+    # wide panel each row's height comes out WIDTH-bound; give it a generous
+    # proportional ceiling (never a fixed pixel cap) and let the width limit it.
+    cell_h = int(H * 0.34)
+    names = [nm for nm, _p, _c in rows]
+    prices = [p for _n, p, _c in rows]
+    name_size = min(canvas.fit_gtext(nm, int(W * 0.52), cell_h) for nm in names)
+    name_w = max(canvas.text_width(nm, name_size) for nm in names)
+    gap = max(8, int(W * 0.05))
+    price_avail = max(20, (W - pad) - (pad + name_w + gap))
+    price_size = min(canvas.fit_gtext(p, price_avail, cell_h) for p in prices)
+    row_em = max(name_size, price_size)
+    # Fill the panel as ONE evenly-spaced group — the header plus the two rows —
+    # with equal gaps above, between, and below every element, so the rows don't
+    # clump into the top and bottom thirds with a dead band stranded in the
+    # middle. Each element's ink is centered on its own slot.
+    ems = [hsize] + [row_em] * len(rows)
+    vgap = max(4, (H - sum(ems)) / (len(ems) + 1))
+    y = vgap
+    canvas.gtext(W / 2, y + hsize * (0.5 - 0.56), head,
+                 color=_CV_DIM, size=hsize, align="center")
+    y += hsize + vgap
+    for name, prc, col in rows:
+        cy = y + row_em * 0.5
+        canvas.gtext(pad, cy - name_size * 0.56, name, color=col, size=name_size)
+        canvas.gtext(W - pad, cy - price_size * 0.56, prc, color=_CV_TEXT,
+                     size=price_size, align="right")
+        y += row_em + vgap
+    canvas.show()
+
+
+def fetch_canvas(settings, canvas, i18n=None, get_location=None):
+    """Gold and silver as two spot-price rows, each metal named in its own color
+    (a 'SPOT /OZ' strip on panels tall enough to afford it). Same keyless source
+    and the same local-currency conversion the flap pages use; prices are cached
+    for five minutes and the last good ones survive an outage."""
+    import time
+    from PIL import ImageDraw
+
+    def t(s):
+        return i18n.t(s, "metals") if i18n is not None else s
+
+    def n(v, d, grouping=True):
+        if i18n is not None:
+            return i18n.number(v, d, grouping)
+        return f'{v:,.{d}f}' if grouping else f'{v:.{d}f}'
+
+    st = getattr(fetch_canvas, '_state', None)
+    if st is None:
+        st = {'data': None, 'ts': 0.0}
+        setattr(fetch_canvas, '_state', st)
+    now = time.time()
+    if st['data'] is None or (now - st['ts']) >= 300.0:
+        ccy, rate = _local_currency(i18n, get_location)
+        gold, silver = _spot_price('XAU'), _spot_price('XAG')
+        if gold is not None or silver is not None:
+            st['data'] = (ccy, rate, gold, silver)
+        st['ts'] = now                     # even after a failure: no hammering
+    if st['data'] is None:
+        canvas.frame(canvas.message('METALS', t('Offline').upper()))
+        return 120.0
+    ccy, rate, gold, silver = st['data']
+
+    cur_sym = i18n.currency_symbol(ccy) if i18n is not None else ('$' if ccy == 'USD' else ccy)
+    sep = '' if cur_sym != ccy else ' '
+    compact = canvas.width < 96            # 64-wide: whole units, no grouping — "$3358"
+                                           # beats cents or a comma below the 8px floor
+
+    def fmt(p):
+        if not isinstance(p, (int, float)):
+            return '--'
+        p = p * rate
+        if compact:
+            return f'{cur_sym}{sep}{n(p, 0, grouping=False)}'
+        body = n(p, 0) if p >= 100 else n(p, 2)
+        return f'{cur_sym}{sep}{body}'
+
+    W, H = canvas.width, canvas.height
+    if getattr(canvas, "can_gtext", False) and H >= 96:
+        rows = [(t('Gold').upper(), fmt(gold), _CV_GOLD),
+                (t('Silver').upper(), fmt(silver), _CV_SILVER)]
+        head = f'{t("Spot price")} /OZ'.upper()
+        _cv_metals_gtext(canvas, head, rows)
+        return 300.0
+    img = canvas.blank((0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    draw.fontmode = "1"
+
+    if H >= 96:
+        # Tall LCD panel: the two rows carry the whole height instead of one
+        # gold row up top and a silver row stranded at the floor. A quiet
+        # 'SPOT PRICE /OZ' strip, then GOLD and SILVER in equal bands, each
+        # metal named in its color with the price right-aligned in white,
+        # sized to fill the band (no half-panel gap).
+        pad = 6
+        head = f'{t("Spot price")} /OZ'.upper()
+        hf = canvas.fit_font(head, W - 2 * pad, max(10, int(H * 0.12)))
+        canvas.text_top(draw, (W - hf.getlength(head)) / 2.0, pad, head, hf, _CV_DIM)
+        rows = [(t('Gold').upper(), fmt(gold), _CV_GOLD),
+                (t('Silver').upper(), fmt(silver), _CV_SILVER)]
+        body_top = pad + canvas.ink(hf, head) + max(6, int(H * 0.05))
+        rh = (H - body_top - pad) // len(rows)
+        fh = max(12, int(rh * 0.66))
+        name_f = min((canvas.fit_font(nm, int(W * 0.50), fh) for nm, _p, _c in rows),
+                     key=lambda f: f.size)
+        name_w = max(name_f.getlength(nm) for nm, _p, _c in rows)
+        price_f = min((canvas.fit_font(p, W - 2 * pad - name_w - 8, fh) for _n, p, _c in rows),
+                      key=lambda f: f.size)
+        row_ink = max(max(canvas.ink(name_f, nm), canvas.ink(price_f, p)) for nm, p, _c in rows)
+        for i, (name, prc, col) in enumerate(rows):
+            cy = body_top + i * rh + (rh - row_ink) // 2
+            canvas.text_top(draw, pad, cy + (row_ink - canvas.ink(name_f, name)) // 2,
+                            name, name_f, col)
+            canvas.text_top(draw, W - pad - price_f.getlength(prc),
+                            cy + (row_ink - canvas.ink(price_f, prc)) // 2, prc, price_f, _CV_TEXT)
+        canvas.frame(img)
+        return 300.0
+
+    top = 0
+    if H >= 48:
+        head = f'{t("Spot price")} /OZ'.upper()
+        hf = canvas.fit_font(head, W - 8, 8)
+        canvas.text_top(draw, (W - hf.getlength(head)) / 2.0, 1, head, hf, _CV_DIM)
+        top = 1 + canvas.ink(hf, head) + 2
+
+    rows = [(t('Gold').upper(), fmt(gold), _CV_GOLD),
+            (t('Silver').upper(), fmt(silver), _CV_SILVER)]
+    n_rows = len(rows)
+    area = H - top
+    rh = area // n_rows
+    fh = max(7, min(rh - 3, int(rh * 0.80)))
+    # one font per column, sized by the longest entry, so the two rows align
+    name_f = min((canvas.fit_font(nm, int(W * 0.45), fh) for nm, _p, _c in rows),
+                 key=lambda f: f.size)
+    name_w = max(name_f.getlength(nm) for nm, _p, _c in rows)
+    price_f = min((canvas.fit_font(p, max(12, W - 6 - name_w - 5), fh) for _n, p, _c in rows),
+                  key=lambda f: f.size)
+    # Uniform rows (the stocks pattern): every row gets the SAME ink-box height
+    # and the SAME gap between boxes — even spacing beats touching the bottom
+    # edge (a spare row under the table reads better than one lopsided gap).
+    row_ink = max(max(canvas.ink(name_f, nm), canvas.ink(price_f, p)) for nm, p, _c in rows)
+    gap = max(1, (area - 2 - n_rows * row_ink) // (n_rows - 1)) if n_rows > 1 else 0
+    for i, (name, prc, col) in enumerate(rows):
+        ry = top + 1 + i * (row_ink + gap)
+        canvas.text_top(draw, 3, ry + (row_ink - canvas.ink(name_f, name)) // 2, name, name_f, col)
+        canvas.text_top(draw, W - 3 - price_f.getlength(prc),
+                        ry + (row_ink - canvas.ink(price_f, prc)) // 2, prc, price_f, _CV_TEXT)
+    canvas.frame(img)
+    return 300.0

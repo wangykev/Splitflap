@@ -1,0 +1,116 @@
+# Build the multi-arch companion image (linux/amd64 + linux/arm64) and push it
+# to this repo's GitHub Container Registry. No secrets to configure — the
+# built-in GITHUB_TOKEN authenticates the push.
+#
+# Runs when you push a version tag (e.g. `git tag v0.1.0 && git push --tags`)
+# or when you trigger it by hand from the Actions tab.
+name: Publish container image
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    # Actions are pinned by commit SHA (the tag is the trailing comment): this job
+    # holds `packages: write`, and a moved tag must not be able to reach it.
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Compute image coordinates
+        id: meta
+        run: |
+          VERSION="$(tr -d ' \t\n\r' < VERSION)"
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/splitflap-gateway-companion"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "image=$IMAGE"     >> "$GITHUB_OUTPUT"
+          # Which channel tags move to this build (a newline-separated list, the form
+          # build-push-action wants):
+          #   prerelease (1.5.1-beta.1) -> :beta only. :latest stays on the newest
+          #     stable, which is what a plain `docker pull` and the stable add-on get.
+          #   stable     (1.5.1)        -> :latest AND :beta. A stable release is by
+          #     definition at least as new as any beta, so the beta channel should never
+          #     be left pointing at an OLDER prerelease — it tracks the newest build.
+          {
+            echo "tags<<TAGS"
+            echo "$IMAGE:$VERSION"
+            if [ "${VERSION#*-}" != "$VERSION" ]; then
+              echo "$IMAGE:beta"
+            else
+              echo "$IMAGE:latest"
+              echo "$IMAGE:beta"
+            fi
+            echo "TAGS"
+          } >> "$GITHUB_OUTPUT"
+
+      # QEMU lets the amd64 runner cross-build the arm64 layer.
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+
+      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.title=SplitFlap Gateway Companion
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=CC-BY-NC-SA-4.0
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # There is deliberately NO prune step here. There was one, and it broke the stable
+      # channel twice — deleting :latest and the 1.8.0 image the stable add-on pulls.
+      #
+      # It cannot be made safe by tuning it:
+      #
+      #   * min-versions-to-keep counts REGISTRY VERSIONS (index + one child manifest per
+      #     arch + attestations ≈ 5 per multi-arch build) and keeps the N newest REGARDLESS
+      #     OF TAGS. Betas are published far more often than stables, so the keep-window
+      #     fills with betas and pushes the stable image off the end. Raising N only buys
+      #     a few more builds before the same deletion; the channel that is NOT being
+      #     rebuilt is always the one that dies.
+      #   * delete-only-untagged-versions is not a fix either: in a multi-arch image only
+      #     the INDEX carries the tag, so the per-arch child manifests are untagged and
+      #     the "safe" setting deletes the innards of the image the tag points at.
+      #
+      # The upside was tidiness; the downside is a broken install for everyone on the
+      # channel. GHCR storage for public packages is free. Old versions stay.
+
+      # A publish that leaves a channel tag dangling is a broken install for anyone on it
+      # (Supervisor pulls :<version> and gets nothing). Prove both channels still resolve
+      # before calling the run green — the prune above is the thing most likely to break
+      # them, and it did once.
+      - name: Verify the channel tags still resolve
+        run: |
+          IMAGE="${{ steps.meta.outputs.image }}"
+          VERSION="${{ steps.meta.outputs.version }}"
+          fail=0
+          for tag in "$VERSION" beta latest; do
+            if docker buildx imagetools inspect "$IMAGE:$tag" >/dev/null 2>&1; then
+              echo "ok      $IMAGE:$tag"
+            elif [ "$tag" = latest ] && [ "${VERSION#*-}" != "$VERSION" ]; then
+              # A prerelease never moves :latest; only complain if it vanished entirely.
+              echo "MISSING $IMAGE:latest — a prerelease must not leave stable dangling"
+              fail=1
+            else
+              echo "MISSING $IMAGE:$tag"
+              fail=1
+            fi
+          done
+          exit $fail

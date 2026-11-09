@@ -1,0 +1,178 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "SplitFlap Gateway Companion",
+        "description": "Introduce la URL de tu SplitFlap Gateway Companion en marcha.",
+        "data": {
+          "url": "URL del companion"
+        },
+        "data_description": {
+          "url": "Por ejemplo homeassistant.local:8000, o la IP y el puerto del companion."
+        }
+      },
+      "display": {
+        "title": "¿Qué pantalla?",
+        "description": "Este companion controla varias paredes. Cada entrada es el dispositivo de una pantalla — añade la integración de nuevo para las demás.",
+        "data": {
+          "display": "Pantalla"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "No se encontró un companion en esa URL. Comprueba que está en marcha y que la dirección es correcta."
+    },
+    "abort": {
+      "already_configured": "Este companion ya está configurado."
+    }
+  },
+  "entity": {
+    "select": {
+      "app": {
+        "name": "App"
+      },
+      "playlist": {
+        "name": "Playlist"
+      }
+    },
+    "sensor": {
+      "message": {
+        "name": "Mensaje"
+      },
+      "showing": {
+        "name": "En pantalla"
+      },
+      "timer_ends": {
+        "name": "Fin del temporizador"
+      }
+    },
+    "button": {
+      "clear": {
+        "name": "Borrar"
+      },
+      "stop": {
+        "name": "Parar"
+      },
+      "home": {
+        "name": "Inicializar todo"
+      },
+      "timer_stop": {
+        "name": "Parar temporizador / silenciar alarma"
+      }
+    },
+    "image": {
+      "board": {
+        "name": "Tablero"
+      }
+    },
+    "binary_sensor": {
+      "timer_running": {
+        "name": "Temporizador"
+      },
+      "alarm_firing": {
+        "name": "Alarma sonando"
+      }
+    },
+    "number": {
+      "timer_minutes": {
+        "name": "Iniciar temporizador"
+      },
+      "sound_volume": {
+        "name": "Volumen"
+      },
+      "panel_brightness": {
+        "name": "Brillo"
+      },
+      "dim_level": {
+        "name": "Nivel de atenuación nocturna"
+      }
+    },
+    "switch": {
+      "quiet_now": {
+        "name": "Modo silencio"
+      },
+      "quiet_schedule": {
+        "name": "Horario de silencio"
+      },
+      "sound_enabled": {
+        "name": "Altavoz"
+      },
+      "dim_enabled": {
+        "name": "Atenuación nocturna"
+      },
+      "alarm1": {
+        "name": "Alarma 1"
+      },
+      "alarm2": {
+        "name": "Alarma 2"
+      },
+      "alarm3": {
+        "name": "Alarma 3"
+      },
+      "alarm4": {
+        "name": "Alarma 4"
+      }
+    },
+    "text": {
+      "quiet_start": {
+        "name": "Inicio del silencio"
+      },
+      "quiet_end": {
+        "name": "Fin del silencio"
+      },
+      "quiet_days": {
+        "name": "Días de silencio"
+      },
+      "dim_start": {
+        "name": "Inicio de atenuación"
+      },
+      "dim_end": {
+        "name": "Fin de atenuación"
+      },
+      "alarm1_time": {
+        "name": "Alarma 1 hora"
+      },
+      "alarm2_time": {
+        "name": "Alarma 2 hora"
+      },
+      "alarm3_time": {
+        "name": "Alarma 3 hora"
+      },
+      "alarm4_time": {
+        "name": "Alarma 4 hora"
+      },
+      "alarm1_days": {
+        "name": "Alarma 1 días"
+      },
+      "alarm2_days": {
+        "name": "Alarma 2 días"
+      },
+      "alarm3_days": {
+        "name": "Alarma 3 días"
+      },
+      "alarm4_days": {
+        "name": "Alarma 4 días"
+      }
+    }
+  },
+  "services": {
+    "message": {
+      "name": "Mostrar mensaje",
+      "description": "Muestra texto en la pantalla split-flap.",
+      "fields": {
+        "text": {
+          "name": "Texto",
+          "description": "El mensaje. Se centra y se ajusta por palabras al tablero."
+        },
+        "style": {
+          "name": "Estilo",
+          "description": "Transición de las aletas (ltr, columns, outside_in…). En blanco = la predeterminada."
+        },
+        "seconds": {
+          "name": "Segundos",
+          "description": "Mostrar temporalmente: pasado ese tiempo la pantalla vuelve a lo que se reproducía. 0 = mantener el mensaje."
+        }
+      }
+    }
+  }
+}

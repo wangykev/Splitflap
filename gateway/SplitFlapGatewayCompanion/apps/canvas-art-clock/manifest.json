@@ -1,0 +1,68 @@
+{
+  "id": "canvas-art-clock",
+  "name": "Lumina Clock",
+  "icon": "🕰️",
+  "description": "The time as luminous color digits (Matrix panel)",
+  "type": "functional",
+  "surfaces": ["matrix"],
+  "lcd_native": true,
+  "refresh_interval": 1,
+  "loop_delay": 1,
+  "category": "time",
+  "settings": [
+    {
+      "key": "treatment",
+      "label": "Treatment",
+      "type": "toggle",
+      "default": "glow",
+      "options": [
+        {"value": "glow", "label": "Glow"},
+        {"value": "aurora", "label": "Aurora"},
+        {"value": "neon", "label": "Neon"},
+        {"value": "minimal", "label": "Minimal"}
+      ]
+    },
+    {
+      "key": "palette",
+      "label": "Palette",
+      "type": "toggle",
+      "default": "amber",
+      "options": [
+        {"value": "amber", "label": "Amber"},
+        {"value": "ice", "label": "Ice"},
+        {"value": "mint", "label": "Mint"},
+        {"value": "duotone", "label": "Duotone"},
+        {"value": "daylight", "label": "Daylight"}
+      ]
+    },
+    {
+      "key": "clock_format",
+      "label": "Time format",
+      "type": "toggle",
+      "default": "24h",
+      "options": [
+        {"value": "24h", "label": "24h"},
+        {"value": "12h", "label": "12h"}
+      ]
+    },
+    {
+      "key": "show_seconds",
+      "label": "Show seconds",
+      "type": "toggle",
+      "default": "yes",
+      "options": [
+        {"value": "yes", "label": "On"},
+        {"value": "no", "label": "Off"}
+      ]
+    },
+    {
+      "key": "timezone",
+      "label": "Timezone (override global)",
+      "type": "search_chips",
+      "searchUrl": "/timezones",
+      "resultKey": "zones",
+      "maxItems": 1,
+      "global_key": true
+    }
+  ]
+}

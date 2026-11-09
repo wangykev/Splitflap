@@ -1,0 +1,69 @@
+"""Mirror an image onto a Matrix panel (the raw-frame path of the `canvas` capability).
+
+A canvas app: it renders a picture to the panel's exact pixel size and pushes it
+as one full-color frame (PUT /api/canvas/frame). With no URL set it draws a
+color-gradient demo, so it shows something out of the box. The image is fetched
+and fitted once, then held (loop_delay), because a frame is the heaviest thing
+you can send a wall.
+"""
+
+
+def _demo(Image, w, h):
+    """A color gradient — proof the panel is drawing true color, no URL needed."""
+    img = Image.new("RGB", (w, h))
+    px = img.load()
+    for y in range(h):
+        for x in range(w):
+            px[x, y] = (int(255 * x / max(1, w - 1)),
+                        int(255 * y / max(1, h - 1)),
+                        int(255 * (1 - x / max(1, w - 1))))
+    return img
+
+
+def _fit(img, w, h, mode):
+    from PIL import Image
+    iw, ih = img.size
+    if mode == "contain":
+        scale = min(w / iw, h / ih)
+        img = img.resize((max(1, int(iw * scale)), max(1, int(ih * scale))))
+        # Image.new is a module function, not a method of the Image CLASS —
+        # img.__class__.new raised AttributeError, so "Fit" fell back to the demo.
+        canvas_img = Image.new("RGB", (w, h), (0, 0, 0))
+        canvas_img.paste(img, ((w - img.size[0]) // 2, (h - img.size[1]) // 2))
+        return canvas_img
+    # cover: scale to fill, center-crop
+    scale = max(w / iw, h / ih)
+    img = img.resize((max(1, int(iw * scale)), max(1, int(ih * scale))))
+    left, top = (img.size[0] - w) // 2, (img.size[1] - h) // 2
+    return img.crop((left, top, left + w, top + h))
+
+
+def fetch_canvas(settings, canvas):
+    from PIL import Image
+    import io
+    import requests
+
+    w, h = canvas.width, canvas.height
+    url = str(settings.get('image_url', '') or '').strip()
+
+    # Cache the fitted frame so a static image isn't re-fetched every pass.
+    state = getattr(fetch_canvas, '_state', None)
+    key = (url, w, h, settings.get('fit'))
+    if state and state.get('key') == key:
+        canvas.frame(state['bytes'])
+        return None
+
+    try:
+        if url:
+            data = requests.get(url, timeout=10,
+                                headers={'User-Agent': 'SplitFlapGatewayCompanion/1.0'}).content
+            img = Image.open(io.BytesIO(data)).convert("RGB")
+            img = _fit(img, w, h, str(settings.get('fit', 'cover')))
+        else:
+            img = _demo(Image, w, h)
+        raw = img.tobytes()
+        fetch_canvas._state = {'key': key, 'bytes': raw}
+        canvas.frame(raw)
+    except Exception:
+        canvas.frame(_demo(Image, w, h).tobytes())    # a broken URL still shows something
+    return None

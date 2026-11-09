@@ -1,0 +1,342 @@
+# =============================================================================
+# SHARED — the elapsed time itself: timezone + event parsing used by both
+# surfaces, and the milestone trigger (surface-independent).
+# =============================================================================
+
+def _tz(settings):
+    import pytz
+    try:
+        return pytz.timezone(settings.get('timezone') or 'UTC')
+    except Exception:
+        return pytz.utc
+
+
+def _event(settings):
+    """(event_name, start_datetime_or_None, now) — both views count from here."""
+    from datetime import datetime
+    tz = _tz(settings)
+    now = datetime.now(tz)
+    event = settings.get('event_name', 'The start')
+    date_str = settings.get('event_date', '2024-01-01')
+    try:
+        start = tz.localize(datetime.strptime(date_str, '%Y-%m-%d'))
+    except Exception:
+        start = None
+    return event, start, now
+
+
+def trigger(settings, conditions):
+    """Fire when the elapsed time hits a round milestone."""
+    from datetime import datetime
+    import pytz
+
+    milestone = conditions.get('milestone', '1y')
+    try:
+        tz = pytz.timezone(settings.get('timezone') or 'UTC')
+    except Exception:
+        tz = pytz.utc
+    now = datetime.now(tz)
+    date_str = settings.get('event_date', '2024-01-01')
+
+    state = getattr(trigger, '_state', None)
+    if state is None:
+        state = {'fired_milestone': None}
+        setattr(trigger, '_state', state)
+
+    try:
+        start = tz.localize(datetime.strptime(date_str, '%Y-%m-%d'))
+        diff = now - start
+        if diff.total_seconds() < 0:
+            return False
+        days = diff.days
+
+        # Map milestone to day windows
+        windows = {
+            '100d': (100, 101),
+            '365d': (365, 366),
+            '1y':   (365, 366),
+            '2y':   (730, 731),
+            '5y':   (1825, 1826),
+            '10y':  (3650, 3651),
+        }
+        lo, hi = windows.get(milestone, (365, 366))
+        in_window = lo <= days < hi
+        key = f"{milestone}:{date_str}:{lo}"
+
+        if in_window and state['fired_milestone'] != key:
+            state['fired_milestone'] = key
+            return True
+        if not in_window and state['fired_milestone'] == key:
+            state['fired_milestone'] = None
+    except Exception:
+        raise
+    return False
+
+
+# =============================================================================
+# SPLIT-FLAP — fetch() and its helpers, unique to the character-grid flap wall.
+# =============================================================================
+
+def fetch(settings, format_lines, get_rows, get_cols, i18n=None, caps=None):
+    def t(s):
+        return i18n.t(s, "time") if i18n is not None else s
+
+    def u(k):                       # localized Y/D/H/M/S suffix
+        return i18n.unit(k) if i18n is not None else k
+
+    event, start, now = _event(settings)
+    if start is None:
+        return [format_lines(event, t('Invalid date'), '')]
+    diff = now - start
+    if diff.total_seconds() < 0:
+        return [format_lines(event, t('Not yet'), t('Started'))]
+    days = diff.days
+    hrs, rem = divmod(diff.seconds, 3600)
+    mins, secs = divmod(rem, 60)
+    years = days // 365
+    remaining_days = days % 365
+    # A live seconds counter means a flip every second, forever. Only a wall that
+    # repaints (caps.instant) gets it; a mechanical wall shows minutes and moves
+    # once a minute. It must also actually fit: "364D 23H 59M 59S" is 16 wide.
+    instant = bool(getattr(caps, 'instant', False))
+    if years > 0:
+        elapsed = f'{years}{u("Y")} {remaining_days}{u("D")} {hrs}{u("H")}'
+    else:
+        elapsed = f'{days}{u("D")} {hrs}{u("H")} {mins}{u("M")}'
+        with_secs = f'{elapsed} {secs}{u("S")}'
+        if instant and len(with_secs) <= get_cols():
+            elapsed = with_secs
+    lines = [event, elapsed, t('Time since')]
+    if get_rows() >= 4 and i18n is not None:
+        lines.append(i18n.date(start, year=True))    # the wall has room: since when
+    return [format_lines(*lines)]
+
+
+# =============================================================================
+# MATRIX PANEL — fetch_canvas() and its helpers, unique to the LED panel.
+#
+# A big elapsed-time counter: the event name up top, the counter as the hero —
+# values in white, unit letters in amber — and "TIME SINCE <date>" as a quiet
+# footer where there is room. Same unit ladder as the flap view (years lead once
+# past a year; seconds tick only while the count is young enough to fit them).
+# Black background.
+# =============================================================================
+
+_NAME_COL = (245, 245, 248)
+_VAL_COL = (245, 245, 248)
+_UNIT_COL = (255, 178, 44)
+_FOOT_COL = (132, 136, 148)
+
+
+def _cv_trim(canvas, text, max_w, max_h, min_ink=6):
+    """Like canvas.fit_font, but rather than shrinking a long text into illegibility
+    it keeps a readable size and trims with an ellipsis. Returns (font, text)."""
+    font = canvas.fit_font(text, max_w, max_h)
+    b = font.getbbox(text or '0')
+    if not text or b[3] - b[1] >= min_ink:
+        return font, text
+    font = canvas.fit_font('AG', max_w, max_h)          # height-bound size
+    while text and font.getlength(text + '…') > max_w:
+        text = text[:-1].rstrip()
+    return font, (text + '…') if text else '…'
+
+
+def _segments(diff, u, with_secs):
+    """The counter as [(value, UNIT), ...] — the same ladder the flap view prints."""
+    days = diff.days
+    hrs, rem = divmod(diff.seconds, 3600)
+    mins, secs = divmod(rem, 60)
+    years = days // 365
+    if years > 0:
+        return [(str(years), u('Y')), (str(days % 365), u('D')), (str(hrs), u('H'))]
+    segs = [(str(days), u('D')), (str(hrs), u('H')), (str(mins), u('M'))]
+    if with_secs:
+        segs.append((f'{secs}', u('S')))
+    return segs
+
+
+def fetch_canvas(settings, canvas, i18n=None, caps=None):
+    from PIL import ImageDraw
+
+    def t(s):
+        return i18n.t(s, "time") if i18n is not None else s
+
+    def u(k):
+        return i18n.unit(k) if i18n is not None else k
+
+    event, start, now = _event(settings)
+    W, H = canvas.width, canvas.height
+    if start is None:
+        canvas.frame(canvas.message(event.upper(), t('Invalid date').upper(),
+                                    color=_NAME_COL, dim=_FOOT_COL))
+        return 60.0
+    diff = now - start
+    if diff.total_seconds() < 0:
+        canvas.frame(canvas.message(event.upper(), t('Not yet').upper(),
+                                    color=_NAME_COL, dim=_FOOT_COL))
+        return 60.0
+
+    years = diff.days // 365
+    # Seconds only while the count is young (no years yet) and the panel is wide
+    # enough that they don't crush the digits — the flap view's fit rule, in pixels.
+    with_secs = years == 0 and W >= 96
+    segs = _segments(diff, u, with_secs)
+
+    if getattr(canvas, "can_gtext", False) and H >= 96:
+        # A wall with scalable on-device text (the LCD): draw the counter as a handful of
+        # gtext ops instead of a pixel frame — crisp at native resolution, a few hundred
+        # bytes a frame over the draw stream. Same event-top / hero-counter / quiet-footer
+        # group as the PIL tall layout: values white, unit letters amber, each segment's
+        # unit sharing the value's baseline (drawn a step lower, as the smaller size).
+        mgn = max(6, int(W * 0.028))                 # side margin — keeps ink off the edge
+        pad = max(2, int(H * 0.02))
+        avail_w = W - 2 * mgn
+
+        def _clip(s, size):                          # never let a line touch the edge
+            if not s or canvas.text_width(s, size) <= avail_w:
+                return s
+            while s and canvas.text_width(s + '…', size) > avail_w:
+                s = s[:-1].rstrip()
+            return (s + '…') if s else ''
+
+        name = event.upper()
+        nsize = canvas.fit_gtext(name, avail_w, int(H * 0.22))
+        name = _clip(name, nsize)
+
+        foot = ''
+        if H >= 48:
+            since_date = i18n.date(start, year=True) if i18n is not None else start.strftime('%b %d %Y')
+            foot = f'{t("Time since")} {since_date}'.upper()
+        fsize = canvas.fit_gtext(foot, avail_w, int(H * 0.14)) if foot else 0
+        foot = _clip(foot, fsize)
+
+        gap = max(3, int(H * 0.055))
+        top = pad + nsize + gap                      # counter region, under the name
+        y_foot = (H - pad - fsize) if foot else H
+        bot = (y_foot - gap) if foot else (H - pad)  # last row the counter may take
+        box_h = max(10, bot - top)
+
+        def _rowstr(r):                              # units measured at value size — conservative
+            return ' '.join(v + s for v, s in r)
+
+        rows = [segs]
+        vsize = canvas.fit_gtext(_rowstr(segs), avail_w, box_h)
+        rgap = 0
+        if len(segs) >= 2 and vsize < int(box_h * 0.82):
+            # Width-bound on one line — two balanced lines double the digit size.
+            cut = min(range(1, len(segs)),
+                      key=lambda c: max(canvas.text_width(_rowstr(segs[:c]), 20),
+                                        canvas.text_width(_rowstr(segs[c:]), 20)))
+            rows = [segs[:cut], segs[cut:]]
+            rgap = max(2, gap // 2)
+            wide = max(rows, key=lambda r: canvas.text_width(_rowstr(r), 20))
+            vsize = canvas.fit_gtext(_rowstr(wide), avail_w, (box_h - rgap) // 2)
+        usize = max(8, int(vsize * 0.62))            # unit letters a step below the values
+
+        block = len(rows) * vsize + (len(rows) - 1) * rgap
+        y = top + (box_h - block) // 2
+
+        canvas.clear((0, 0, 0))
+        canvas.gtext(W // 2, pad, name, color=_NAME_COL, size=nsize, align="center")
+        for r in rows:
+            widths = [(canvas.text_width(v, vsize), canvas.text_width(s, usize)) for v, s in r]
+            space = max(3.0, canvas.text_width(' ', vsize) * 0.8)
+            line_w = sum(vw + uw for vw, uw in widths) + space * (len(r) - 1)
+            x = (W - line_w) / 2.0
+            for (v, s), (vw, uw) in zip(r, widths):
+                canvas.gtext(int(round(x)), y, v, color=_VAL_COL, size=vsize)
+                x += vw
+                canvas.gtext(int(round(x)), int(y + vsize - usize), s, color=_UNIT_COL, size=usize)
+                x += uw + space
+            y += vsize + rgap
+        if foot:
+            canvas.gtext(W // 2, y_foot, foot, color=_FOOT_COL, size=fsize, align="center")
+        canvas.show()
+        if with_secs:
+            return max(0.05, 1.0 - now.microsecond / 1e6)
+        return max(1.0, 60.0 - now.second - now.microsecond / 1e6)
+
+    img = canvas.blank((0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    draw.fontmode = "1"
+
+    # Layout: event name pinned to the very top row, "TIME SINCE <date>" pinned
+    # to the very bottom (tall panels), and the counter — the hero — grown to
+    # fill everything between, splitting onto two lines when a single line
+    # would be width-bound and leave the digits small. (Ink starts/ends 1px in:
+    # the reported bbox can under-report a pixel.)
+    name = event.upper()
+    nf, name = _cv_trim(canvas, name, W - 4, max(8, int(H * 0.22)))
+    nb = nf.getbbox(name)
+    nh = nb[3] - nb[1]
+
+    foot = ''
+    if H >= 48:
+        since_date = i18n.date(start, year=True) if i18n is not None else start.strftime('%b %d %Y')
+        foot = f'{t("Time since")} {since_date}'.upper()
+    ff = canvas.fit_font(foot, W - 4, max(7, int(H * 0.15))) if foot else None
+    fb = ff.getbbox(foot) if foot else None
+    fh = (fb[3] - fb[1]) if foot else 0
+
+    gap = max(2, H // 16)
+    box_top = 1 + nh + gap                          # counter region, edge to edge
+    box_bot = (H - 2 - fh - gap) if foot else H - 2  # last ink row the counter may take
+    box_h = max(6, box_bot - box_top + 1)
+
+    def row_text(r):
+        return ' '.join(v + s for v, s in r)
+
+    # The counter: fit "12D 4H 33M 21S" as one string for sizing, then draw it
+    # segment by segment so the unit letters can take the accent color.
+    rows = [segs]
+    cf = canvas.fit_font(row_text(segs), W - 2, box_h)
+    cb = cf.getbbox(row_text(segs))
+    rgap = 0
+    if len(segs) >= 2 and (cb[3] - cb[1]) < 0.58 * box_h:
+        # Width-bound: two balanced lines double the digit size.
+        ref = canvas.font(20)
+        cut = min(range(1, len(segs)),
+                  key=lambda c: max(ref.getlength(row_text(segs[:c])),
+                                    ref.getlength(row_text(segs[c:]))))
+        rows = [segs[:cut], segs[cut:]]
+        rgap = max(1, gap // 2)
+        wide = max(rows, key=lambda r: ref.getlength(row_text(r)))
+        cf = canvas.fit_font(row_text(wide), W - 2, (box_h - rgap) / 2.0)
+
+    heights = [(lambda b: b[3] - b[1])(cf.getbbox(row_text(r))) for r in rows]
+    block = sum(heights) + rgap * (len(rows) - 1)
+    # Unit letters a step smaller than the values, sharing the baseline — but on
+    # a counter already small, one size for both beats two illegible ones.
+    ref_h = max(heights)
+    uf = canvas.fit_font('D', int(W * 0.2), int(ref_h * 0.62)) if ref_h >= 12 else cf
+
+    draw.text(((W - nf.getlength(name)) / 2.0, 1 - nb[1]), name, font=nf, fill=_NAME_COL)
+
+    # With a footer the counter centers between the pinned edges; without one it
+    # anchors to the bottom so no dark band is left under it.
+    y = (box_top + (box_h - block) / 2.0) if foot else (box_bot - block + 1)
+    for r, rh in zip(rows, heights):
+        widths = [(cf.getlength(v), uf.getlength(s)) for v, s in r]
+        space = max(2.0, cf.getlength(' ') * 0.8)
+        line_w = sum(vw + uw for vw, uw in widths) + space * (len(r) - 1)
+        x = (W - line_w) / 2.0
+        base = y + rh                               # shared baseline for values and units
+        for (v, s), (vw, uw) in zip(r, widths):
+            vb = cf.getbbox(v)
+            draw.text((x, base - (vb[3] - vb[1]) - vb[1]), v, font=cf, fill=_VAL_COL)
+            x += vw
+            sb = uf.getbbox(s)
+            draw.text((x, base - (sb[3] - sb[1]) - sb[1]), s, font=uf, fill=_UNIT_COL)
+            x += uw + space
+        y += rh + rgap
+
+    if foot:
+        draw.text(((W - ff.getlength(foot)) / 2.0, H - 1 - fh - fb[1]), foot,
+                  font=ff, fill=_FOOT_COL)
+
+    canvas.frame(img)
+    if with_secs:
+        return max(0.05, 1.0 - now.microsecond / 1e6)       # tick on the second
+    # Coarser counters advance on the minute (or the hour, once years lead) —
+    # redraw on the minute either way; it is cheap and never visibly ticks.
+    return max(1.0, 60.0 - now.second - now.microsecond / 1e6)

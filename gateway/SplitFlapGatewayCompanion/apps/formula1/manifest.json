@@ -1,0 +1,37 @@
+{
+  "id": "formula1",
+  "name": "Formula 1",
+  "icon": "🏎️",
+  "description": "Next Grand Prix & championship leader",
+  "type": "functional",
+  "surfaces": ["flap", "matrix"],
+  "lcd_ops": true,
+  "i18n": true,
+  "refresh_interval": 3600,
+  "loop_delay": 6,
+  "category": "sports",
+  "min_rows": 2,
+  "min_cols": 12,
+  "settings": [
+    {
+      "key": "secs_race",
+      "label": "Next race screen (seconds)",
+      "type": "number",
+      "default": "6",
+      "min": "2",
+      "max": "120",
+      "step": "1",
+      "stepper": true
+    },
+    {
+      "key": "secs_standings",
+      "label": "Standings screen (seconds)",
+      "type": "number",
+      "default": "6",
+      "min": "2",
+      "max": "120",
+      "step": "1",
+      "stepper": true
+    }
+  ]
+}

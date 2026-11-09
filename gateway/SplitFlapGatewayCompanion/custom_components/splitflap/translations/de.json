@@ -1,0 +1,178 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "SplitFlap Gateway Companion",
+        "description": "Gib die URL deines laufenden SplitFlap Gateway Companion ein.",
+        "data": {
+          "url": "Companion-URL"
+        },
+        "data_description": {
+          "url": "Zum Beispiel homeassistant.local:8000, oder IP und Port des Companions."
+        }
+      },
+      "display": {
+        "title": "Welche Anzeige?",
+        "description": "Dieser Companion steuert mehrere Wände. Jeder Eintrag ist das Gerät einer Anzeige — füge die Integration für die anderen erneut hinzu.",
+        "data": {
+          "display": "Anzeige"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unter dieser URL ist kein Companion erreichbar. Prüfe, ob er läuft und die Adresse stimmt."
+    },
+    "abort": {
+      "already_configured": "Dieser Companion ist bereits eingerichtet."
+    }
+  },
+  "entity": {
+    "select": {
+      "app": {
+        "name": "App"
+      },
+      "playlist": {
+        "name": "Playlist"
+      }
+    },
+    "sensor": {
+      "message": {
+        "name": "Nachricht"
+      },
+      "showing": {
+        "name": "Läuft gerade"
+      },
+      "timer_ends": {
+        "name": "Timer endet"
+      }
+    },
+    "button": {
+      "clear": {
+        "name": "Leeren"
+      },
+      "stop": {
+        "name": "Stopp"
+      },
+      "home": {
+        "name": "Alle in Grundstellung"
+      },
+      "timer_stop": {
+        "name": "Timer stoppen / Alarm aus"
+      }
+    },
+    "image": {
+      "board": {
+        "name": "Tafel"
+      }
+    },
+    "binary_sensor": {
+      "timer_running": {
+        "name": "Timer"
+      },
+      "alarm_firing": {
+        "name": "Alarm läutet"
+      }
+    },
+    "number": {
+      "timer_minutes": {
+        "name": "Timer starten"
+      },
+      "sound_volume": {
+        "name": "Lautstärke"
+      },
+      "panel_brightness": {
+        "name": "Helligkeit"
+      },
+      "dim_level": {
+        "name": "Nachtdimm-Stufe"
+      }
+    },
+    "switch": {
+      "quiet_now": {
+        "name": "Ruhezeit"
+      },
+      "quiet_schedule": {
+        "name": "Ruhezeitplan"
+      },
+      "sound_enabled": {
+        "name": "Lautsprecher"
+      },
+      "dim_enabled": {
+        "name": "Nachtdimmung"
+      },
+      "alarm1": {
+        "name": "Alarm 1"
+      },
+      "alarm2": {
+        "name": "Alarm 2"
+      },
+      "alarm3": {
+        "name": "Alarm 3"
+      },
+      "alarm4": {
+        "name": "Alarm 4"
+      }
+    },
+    "text": {
+      "quiet_start": {
+        "name": "Ruhezeit-Beginn"
+      },
+      "quiet_end": {
+        "name": "Ruhezeit-Ende"
+      },
+      "quiet_days": {
+        "name": "Ruhetage"
+      },
+      "dim_start": {
+        "name": "Nachtdimmung-Beginn"
+      },
+      "dim_end": {
+        "name": "Nachtdimmung-Ende"
+      },
+      "alarm1_time": {
+        "name": "Alarm 1 Zeit"
+      },
+      "alarm2_time": {
+        "name": "Alarm 2 Zeit"
+      },
+      "alarm3_time": {
+        "name": "Alarm 3 Zeit"
+      },
+      "alarm4_time": {
+        "name": "Alarm 4 Zeit"
+      },
+      "alarm1_days": {
+        "name": "Alarm 1 Tage"
+      },
+      "alarm2_days": {
+        "name": "Alarm 2 Tage"
+      },
+      "alarm3_days": {
+        "name": "Alarm 3 Tage"
+      },
+      "alarm4_days": {
+        "name": "Alarm 4 Tage"
+      }
+    }
+  },
+  "services": {
+    "message": {
+      "name": "Nachricht anzeigen",
+      "description": "Zeigt Text auf der Split-Flap-Anzeige.",
+      "fields": {
+        "text": {
+          "name": "Text",
+          "description": "Die Nachricht. Sie wird zentriert und wortweise umbrochen."
+        },
+        "style": {
+          "name": "Stil",
+          "description": "Klappen-Übergang (z. B. ltr, columns, outside_in). Leer = Standard."
+        },
+        "seconds": {
+          "name": "Sekunden",
+          "description": "Nur vorübergehend zeigen: danach kehrt die Anzeige zum vorherigen Inhalt zurück. 0 = Nachricht stehen lassen."
+        }
+      }
+    }
+  }
+}

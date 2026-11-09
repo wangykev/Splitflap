@@ -1,0 +1,47 @@
+{
+  "id": "world_clock",
+  "i18n": true,
+  "name": "World Clock",
+  "icon": "🌍",
+  "description": "Time zones — text on flaps, lit day/night rows on a Matrix panel",
+  "type": "functional",
+  "surfaces": ["flap", "matrix"],
+  "lcd_ops": true,
+  "refresh_interval": 1,
+  "loop_delay": 1,
+  "category": "time",
+  "trigger_interval": 60,
+  "trigger_display_seconds": 20,
+  "trigger_cooldown": 43200,
+  "trigger_conditions": [
+    {
+      "key": "event",
+      "label": "Fire when",
+      "type": "toggle",
+      "default": "open",
+      "options": [
+        {
+          "value": "open",
+          "label": "Business opens (9am)"
+        },
+        {
+          "value": "close",
+          "label": "Business closes (5pm)"
+        }
+      ]
+    }
+  ],
+  "settings": [
+    {
+      "key": "world_clock_zones",
+      "label": "Timezones (as many as the wall has rows)",
+      "type": "search_chips",
+      "searchUrl": "/timezones",
+      "resultKey": "zones",
+      "maxItems": 6,
+      "default": "US/Eastern,US/Pacific,Europe/London"
+    }
+  ],
+  "min_rows": 1,
+  "min_cols": 10
+}

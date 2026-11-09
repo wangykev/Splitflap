@@ -1,0 +1,41 @@
+{
+  "id": "canvas-scoreboard",
+  "name": "Scoreboard",
+  "icon": "🏆",
+  "description": "Live scores with team badges (real logos) on the Matrix panel",
+  "type": "functional",
+  "surfaces": ["matrix"],
+  "refresh_interval": 1,
+  "loop_delay": 45,
+  "category": "sports",
+  "settings": [
+    {
+      "key": "follow",
+      "label": "Teams & leagues to follow",
+      "type": "search_chips",
+      "searchUrl": "/sports_search",
+      "resultKey": "results",
+      "maxItems": 100,
+      "ph": "Search a team or league…",
+      "note": "Add any mix of teams and whole leagues — the app rotates through their games."
+    },
+    {
+      "key": "filter",
+      "label": "Show",
+      "type": "toggle",
+      "default": "all",
+      "options": [
+        {"value": "all", "label": "All"},
+        {"value": "live", "label": "Live"},
+        {"value": "live+upcoming", "label": "Live+Next"}
+      ]
+    },
+    {
+      "key": "rotate",
+      "label": "Seconds per game",
+      "type": "number",
+      "default": "8",
+      "min": "3", "max": "60", "step": "1", "stepper": true
+    }
+  ]
+}

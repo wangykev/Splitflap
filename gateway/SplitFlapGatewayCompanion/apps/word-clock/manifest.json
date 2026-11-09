@@ -1,0 +1,43 @@
+{
+  "id": "word-clock",
+  "i18n": true,
+  "name": "Word Clock",
+  "icon": "🔤",
+  "description": "Time as written phrase",
+  "category": "time",
+  "type": "functional",
+  "surfaces": ["flap", "matrix"],
+  "lcd_ops": true,
+  "version": "1.0",
+  "refresh_interval": 60,
+  "refresh_align": "minute",
+  "loop_delay": 1,
+  "settings": [
+    {
+      "key": "interval",
+      "label": "Update Interval",
+      "type": "toggle",
+      "default": "5",
+      "options": [
+        {
+          "value": "1",
+          "label": "1"
+        },
+        {
+          "value": "5",
+          "label": "5"
+        },
+        {
+          "value": "15",
+          "label": "15"
+        },
+        {
+          "value": "30",
+          "label": "30"
+        }
+      ]
+    }
+  ],
+  "min_rows": 3,
+  "min_cols": 12
+}

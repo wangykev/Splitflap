@@ -1,0 +1,115 @@
+# Home Assistant add-on manifest — the BETA channel.
+#
+# This repository exposes the companion on two channels, side by side:
+#
+#   addon-beta/  slug splitflap_companion_beta  -> the prerelease (this file)
+#   addon/       slug splitflap_companion       -> the stable release
+#
+# They carry DIFFERENT slugs on purpose: a slug is the add-on's identity, so distinct
+# ones let both appear in the store, be installed alongside each other, and update
+# independently. Sharing a slug would make the stable entry collide with an installed
+# beta and force a reinstall. Installed, not running: both publish host port 8000, so
+# the second to start fails to bind unless its port is remapped.
+#
+# Both channels run the SAME image the project already publishes on every release (see
+# .github/workflows/publish-image.yml) — there is no add-on-specific build. `version`
+# therefore has to match a published tag, and Supervisor pulls
+# ghcr.io/avandeputte/splitflap-gateway-companion:<version>. Bump it with VERSION.
+#
+# Options are NOT translated into environment variables here: with a prebuilt image there
+# is no run script to do it. The app reads /data/options.json itself — see
+# config._addon_overrides() — which is what lets one image serve both worlds.
+name: SplitFlap Gateway Companion (Beta)
+version: "2.10.23"
+slug: splitflap_companion_beta
+description: >-
+  Prerelease. Drive a SplitFlap wall from Home Assistant — apps, playlists, schedules
+  and triggers, a Vestaboard-compatible API, and an MCP server for LLM clients.
+url: https://github.com/avandeputte/SplitFlapGatewayCompanion
+image: ghcr.io/avandeputte/splitflap-gateway-companion
+# Flags it in the store as not-yet-stable, which is exactly what a :beta tag is.
+stage: experimental
+arch:
+  - aarch64
+  - amd64
+init: false
+boot: auto
+startup: application
+
+# The container sits on Home Assistant's internal bridge, so it can only see its own
+# 172.30.x.x address — which is what it was handing the gateway to link back to, and
+# nothing on the LAN can reach that. The host's real address, and the port this add-on is
+# actually published on, are only knowable by asking Supervisor (/network/info and
+# /addons/self/info), which needs this. See gateway.addon_public_url().
+hassio_api: true
+# Access Home Assistant's core REST API through the Supervisor proxy (entity states
+# for the Dashboard app). Standalone Docker uses COMPANION_HA_URL/COMPANION_HA_TOKEN instead.
+homeassistant_api: true
+
+# The UI is served straight into the HA sidebar. The app reads Supervisor's
+# X-Ingress-Path header and prefixes every asset/API URL with it (see main.spa_index),
+# which is what makes the SPA work under the /api/hassio_ingress/<token>/ prefix.
+ingress: true
+ingress_port: 8000
+panel_icon: mdi:view-grid
+# Distinct from the stable channel's, so the two are tellable apart in the sidebar when
+# both are installed (which is the point of separate slugs).
+panel_title: SplitFlap (Beta)
+
+# Ingress covers the UI, but two surfaces are hit by clients that are NOT the HA
+# frontend and so need a real port: the Vestaboard Local API (a rest_command, a
+# script, the HACS integration) and the MCP server (an LLM client). Publishing 8000
+# is what makes those reachable at http://<ha-host>:8000.
+ports:
+  8000/tcp: 8000
+ports_description:
+  8000/tcp: >-
+    Direct access, needed only for the Vestaboard-compatible API and the MCP server.
+    The web UI itself goes through the sidebar and does not need this.
+
+options:
+  gateway_url: ""
+  vestaboard: false
+  mcp: false
+  ui_language: auto
+  dev_mode: false
+  log_level: INFO
+
+schema:
+  # Required: the app refuses to start without it.
+  #
+  # `str`, not `url`, because this takes a COMMA-DELIMITED LIST — one entry per gateway:
+  #   http://192.168.1.218,http://192.168.1.50
+  # The `url` validator would reject that outright. The first entry is the DEFAULT
+  # display (the one Home Assistant, the Vestaboard API and anything else that names no
+  # display drives); later entries each become a display of their own.
+  gateway_url: str
+  # The Home Assistant integration's MQTT broker. The gateway supplies no broker of
+  # its own, so set your broker's host here — e.g. `core-mosquitto`
+  # for the HA Mosquitto add-on. Leave blank to keep the HA device off.
+  mqtt_broker: str?
+  mqtt_port: int?
+  mqtt_username: str?
+  # Set the broker password here if your broker needs auth.
+  mqtt_password: password?
+  # This add-on's own URL, registered with the gateway so it shows a "Companion" tab.
+  companion_public_url: str?
+  # Optional, and deliberately NOT in `options:` above: with no default set,
+  # Home Assistant files it under "unused optional configuration options"
+  # instead of putting it on the page. Absent = the app's own default,
+  # "auto" — bring the MQTT device up when a broker is configured, off when none is.
+  # Set it to force the device on or off regardless.
+  home_assistant: list(auto|true|false)?
+  vestaboard: bool
+  vestaboard_key: password?
+  mcp: bool
+  mcp_token: password?
+  # UI (chrome) language for this deployment. "auto" (the default) follows Home
+  # Assistant's own language for the signed-in user, and the browser outside HA.
+  # A pinned value here beats both. Never affects what the flaps show — that is
+  # the Language setting inside the app.
+  ui_language: list(auto|en-US|en-GB|en-AU|en-CA|fr|fr-CA|fr-BE|fr-CH|de|de-AT|de-CH|es|es-MX|es-AR|it|it-CH|pt|pt-BR|nl|nl-BE|da|no|sv|fi|is|ga|ca|gl|eu|et|af|id|ms|sw)
+  # Enables simulation mode in the ⚙ tools menu (run apps without driving the wall,
+  # with a grid override while simulating). The menu itself is always available.
+  dev_mode: bool
+  log_level: list(DEBUG|INFO|WARNING|ERROR|CRITICAL)

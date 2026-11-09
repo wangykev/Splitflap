@@ -1,0 +1,17 @@
+{
+  "id": "word-of-the-day",
+  "i18n": true,
+  "name": "Word of the Day",
+  "icon": "📖",
+  "description": "Expand your vocabulary daily",
+  "category": "education",
+  "type": "functional",
+  "surfaces": ["flap", "matrix"],
+  "lcd_ops": true,
+  "version": "1.0",
+  "refresh_interval": 3600,
+  "loop_delay": 10,
+  "settings": [],
+  "min_rows": 2,
+  "min_cols": 15
+}

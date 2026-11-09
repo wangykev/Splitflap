@@ -1,0 +1,29 @@
+{
+  "id": "date",
+  "i18n": true,
+  "name": "Date",
+  "icon": "📅",
+  "description": "The full date — a big typographic Date Card on a Matrix panel",
+  "type": "functional",
+  "surfaces": [
+    "flap",
+    "matrix"
+  ],
+  "lcd_ops": true,
+  "refresh_interval": 1,
+  "loop_delay": 1,
+  "category": "time",
+  "settings": [
+    {
+      "key": "timezone",
+      "label": "Timezone (override global)",
+      "type": "search_chips",
+      "searchUrl": "/timezones",
+      "resultKey": "zones",
+      "maxItems": 1,
+      "global_key": true
+    }
+  ],
+  "min_rows": 2,
+  "min_cols": 10
+}

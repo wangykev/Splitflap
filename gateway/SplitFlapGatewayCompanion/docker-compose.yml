@@ -1,0 +1,67 @@
+services:
+  companion:
+    # Prefer the published multi-arch image from GitHub Container Registry
+    # (works on x86 and arm64 — Raspberry Pi, Apple Silicon — automatically).
+    #   docker compose pull && docker compose up -d
+    # Set GHCR_OWNER (your GitHub user/org) in .env; pin a release with
+    # COMPANION_TAG. `build: .` is kept as a fallback so `docker compose build`
+    # still works for local development without the registry.
+    image: ghcr.io/${GHCR_OWNER:-avandeputte}/splitflap-gateway-companion:${COMPANION_TAG:-latest}
+    build: .
+    container_name: splitflap-companion
+    ports:
+      - "8000:8000"
+      # Vestaboard-compatible API (COMPANION_VESTABOARD=1): a real board answers on
+      # port 7000, and some clients hard-code it. Publishing the SAME app on 7000 is
+      # all it takes — there is no second server inside the container.
+      # - "7000:8000"
+    volumes:
+      - companion-data:/data
+    restart: unless-stopped
+    environment:
+      # The gateway is the source of truth for grid size, pulled from its
+      # /api/config. There is no config file — normally this URL is the only
+      # thing you set:
+      GATEWAY_URL: "http://192.168.1.50"   # REQUIRED — the app refuses to start without it
+      # The companion always talks to the gateway over REST (/api/rs485/batch);
+      # there is no transport setting. MQTT below is only for the companion's own
+      # Home Assistant integration (the gateway supplies no broker of its own).
+      #
+      # THIS HOST's LAN address (not the gateway's). It is registered with the gateway
+      # so its "Companion" tab links back here. SET IT: this container is on a
+      # Docker bridge, so left to guess the companion detects its own 172.17.x.x bridge
+      # address — which your gateway, out on the LAN, cannot reach. It warns in the log if
+      # it has to guess. Nothing else depends on it; driving the display works either way.
+      COMPANION_PUBLIC_URL: "http://192.168.1.42:8000"
+      # MQTT broker for the Home Assistant integration (host only); port/user/password
+      # optional. Blank broker = HA off. The gateway does not supply these.
+      # COMPANION_MQTT_BROKER: "192.168.1.50"
+      # COMPANION_MQTT_PORT: "1883"
+      # COMPANION_MQTT_USER: ""
+      # COMPANION_MQTT_PASSWORD: ""
+      COMPANION_MODULE_ID_BASE: "0"       # companion-owned; module id of grid index 0
+      # COMPANION_SYNC_FROM_GATEWAY: "true"
+      # Where settings live (needs Gateway 3.1+): mirror (default) | local | gateway.
+      # "mirror" lets a fresh companion on a new host restore its settings from the
+      # gateway; "gateway" keeps nothing on disk. Degrades to local on a 3.0 gateway.
+      # COMPANION_SETTINGS_STORE: "mirror"
+      # Log level: DEBUG | INFO | WARNING | ERROR | CRITICAL (default INFO)
+      # COMPANION_LOG_LEVEL: "INFO"
+      # Home Assistant: auto (on when a broker is set) | true | false
+      COMPANION_HA: "auto"
+      # Answer the Vestaboard Local API (off by default), so anything that speaks to
+      # a Vestaboard can drive this display. Leave the key blank and one is generated
+      # and kept with your settings — read it from the ⚙ menu. See README.
+      # COMPANION_VESTABOARD: "1"
+      # COMPANION_VESTABOARD_KEY: ""
+      # Expose the display as MCP tools at /mcp (off by default), so an LLM client can
+      # show a message, run an app, or read the board. Token generated like the one
+      # above and shown in the ⚙ menu. See README.
+      # COMPANION_MCP: "1"
+      # COMPANION_MCP_TOKEN: ""
+      # --- Manual grid override (only if you do NOT want to read geometry from the gateway) ---
+      # COMPANION_GRID_ROWS: "3"
+      # COMPANION_GRID_COLS: "15"
+
+volumes:
+  companion-data:

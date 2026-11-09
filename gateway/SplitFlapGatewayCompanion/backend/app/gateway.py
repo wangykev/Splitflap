@@ -1,0 +1,767 @@
+"""
+gateway.py — treat the SplitFlapGateway as the source of truth.
+
+The gateway exposes its display geometry via ``GET /api/config`` (fields
+``gridRows``, ``gridCols``). The companion pulls those so the panel is configured
+in exactly one place — the gateway. Anything the gateway can't give us (the
+transport choice, the companion's own Home Assistant broker) stays local.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import functools
+import gzip
+import json
+import logging
+import re
+import threading
+import time
+from contextlib import contextmanager
+
+from . import debuglog
+from .tabs import COMPANION_TABS, clean_tabs
+
+log = logging.getLogger("companion.gateway")
+
+# --- one pooled HTTP client per gateway ----------------------------------------
+# The gateway is a ~4-socket ESP32; a one-shot client per helper call would mean
+# a fresh TCP handshake for every heartbeat, config pull and settings transfer.
+# So: one keep-alive httpx.Client per
+# gateway base URL; httpx.Client is documented thread-safe, which matters
+# because the settings transfers run in background threads while the async helpers
+# run on the event loop (they reach the SAME pool via a worker thread).
+_clients_lock = threading.Lock()
+_clients: dict[str, object] = {}
+
+
+def _base(url: str) -> str:
+    """The normalized gateway key — every per-gateway dict here is keyed on this."""
+    return (url or "").rstrip("/")
+
+
+def _client(url: str):
+    import httpx2 as httpx
+
+    base = _base(url)
+    with _clients_lock:
+        c = _clients.get(base)
+        # A cached client survives for the life of the process (the test suite clears
+        # the cache between tests from a conftest fixture).
+        stale = c is None or getattr(c, "is_closed", False)
+        if stale:
+            c = httpx.Client(base_url=base, timeout=5.0,
+                             limits=httpx.Limits(max_keepalive_connections=2,
+                                                 max_connections=4))
+            _clients[base] = c
+        return c
+
+
+def _request(method: str, url: str, path: str, *, timeout: float, **kw):
+    """The shared wrapper: base-url rstrip + the pooled per-gateway client, one place."""
+    if log.isEnabledFor(logging.DEBUG):
+        _log_send(method, url, path, kw)
+    if not debuglog.is_enabled():
+        return _client(url).request(method, path, timeout=timeout, **kw)
+    # Wire log on: capture the send (payload preview) and the answer (status + small body).
+    body = kw.get("content") if kw.get("content") is not None else kw.get("json")
+    ctype = (kw.get("headers") or {}).get("Content-Type")
+    debuglog.gw_send(method, url, path, body, ctype)
+    t0 = time.monotonic()
+    try:
+        r = _client(url).request(method, path, timeout=timeout, **kw)
+    except Exception as e:
+        debuglog.gw_recv(method, url, path, None, (time.monotonic() - t0) * 1000, error=e)
+        raise
+    debuglog.gw_recv(method, url, path, r.status_code, (time.monotonic() - t0) * 1000,
+                     body=_resp_preview(r), ctype=r.headers.get("content-type"))
+    return r
+
+
+def _resp_preview(r):
+    """A gateway response body worth logging: the small JSON/text ok-or-error the command
+    endpoints return. Big binary (a frame readback) is left unread — size alone is enough,
+    and forcing 2 MB into memory to log it would be its own bug."""
+    ct = str(r.headers.get("content-type", "")).lower()
+    if "json" not in ct and "text" not in ct:
+        return None
+    try:
+        return r.content            # httpx caches it; the caller's .json()/.content re-reads free
+    except Exception:
+        return None
+
+
+def _log_send(method: str, url: str, path: str, kw: dict) -> None:
+    """One DEBUG line per gateway request — endpoint, payload size, payload type. EVERY gateway
+    interaction (canvas pushes, settings, the timer/alarm/quiet poll) funnels through _request, so
+    this is the single place that sees them all. Guarded by isEnabledFor so a non-debug run pays
+    nothing."""
+    body = kw.get("content")
+    if body is not None:
+        try:
+            n = len(body)
+        except TypeError:
+            n = -1
+        ctype = (kw.get("headers") or {}).get("Content-Type", "application/octet-stream")
+    elif kw.get("json") is not None:
+        try:
+            n = len(json.dumps(kw["json"]).encode())
+        except Exception:
+            n = -1
+        ctype = "application/json"
+    else:
+        n, ctype = 0, "-"
+    log.debug("gateway -> %s %s%s  %d B  %s", method, _base(url), path.split("?", 1)[0], n, ctype)
+
+
+async def _arequest(method: str, url: str, path: str, *, timeout: float, **kw):
+    """Async callers go through the same pooled client via a worker thread — a per-call
+    AsyncClient would defeat the pooling this exists for."""
+    return await asyncio.get_running_loop().run_in_executor(
+        None, functools.partial(_request, method, url, path, timeout=timeout, **kw))
+
+
+# --- settings-transfer bookkeeping, per gateway ---------------------------------
+# Counted while a settings blob is being uploaded to / downloaded from a gateway.
+# The engine yields to it so display frames don't compete for the gateway's
+# attention mid-transfer. PER GATEWAY: one wall's settings push must not pause
+# sends to every other display. A COUNT, not a flag: with a flag, two concurrent
+# transfers to the same gateway race the set/clear, and the first to finish drops
+# the flag while the other is still mid-transfer.
+_transfer_cond = threading.Condition()
+_transfers: dict[str, int] = {}          # gateway base url -> transfers in flight
+
+
+@contextmanager
+def _settings_transfer(url: str):
+    key = _base(url)
+    with _transfer_cond:
+        _transfers[key] = _transfers.get(key, 0) + 1
+    try:
+        yield
+    finally:
+        with _transfer_cond:
+            n = _transfers.get(key, 1) - 1
+            if n <= 0:
+                _transfers.pop(key, None)
+            else:
+                _transfers[key] = n
+            _transfer_cond.notify_all()
+
+
+def settings_active(url: str | None = None) -> bool:
+    """True while a settings upload/download is in flight — for ``url``'s gateway, or
+    for ANY gateway when called without one (the engine passes its own display's)."""
+    with _transfer_cond:
+        if url is None:
+            return bool(_transfers)
+        return _transfers.get(_base(url), 0) > 0
+
+
+def wait_settings_idle(url: str, timeout: float = 5.0) -> float:
+    """Block until no transfer is in flight for this gateway (or ``timeout``), and
+    return the seconds waited. Runs in a worker thread on the engine's behalf, so the
+    engine awaits a condition instead of busy-polling a flag."""
+    key = _base(url)
+    start = time.monotonic()
+    with _transfer_cond:
+        _transfer_cond.wait_for(lambda: _transfers.get(key, 0) == 0, timeout)
+    return time.monotonic() - start
+
+
+async def fetch_gateway_config(url: str, timeout: float = 5.0) -> dict:
+    """GET ``{url}/api/config`` and return the parsed JSON (raises on failure)."""
+    r = await _arequest("GET", url, "/api/config", timeout=timeout)
+    r.raise_for_status()
+    return r.json()
+
+
+def _host_of(url: str) -> str:
+    from urllib.parse import urlparse
+
+    try:
+        return urlparse(url).hostname or ""
+    except Exception:
+        return ""
+
+
+# Home Assistant's internal bridge, the one the add-on container lives on. An address
+# here is precisely the wrong answer — it is what we were already reporting.
+HA_INTERNAL_NET = "172.30.32.0/23"
+
+
+def _primary_ipv4(interfaces: list) -> str:
+    """The host's LAN address: the primary interface's, else any other real one.
+
+    Supervisor gives it in CIDR ("192.168.1.50/24"), and older versions used an `address`
+    list where newer ones use `ip_address`. Addresses on the internal bridge are skipped
+    in both passes — falling back to one would just re-report the container's own address
+    under a different name.
+    """
+    import ipaddress
+
+    internal = ipaddress.ip_network(HA_INTERNAL_NET)
+
+    def addr_of(iface: dict) -> str:
+        v4 = iface.get("ipv4") or {}
+        a = v4.get("ip_address") or ""
+        if not a:
+            lst = v4.get("address") or []
+            a = lst[0] if lst else ""
+        a = a.split("/")[0]
+        try:
+            return "" if ipaddress.ip_address(a) in internal else a
+        except ValueError:
+            return ""
+
+    for primary_only in (True, False):
+        for iface in interfaces:
+            if primary_only and not iface.get("primary"):
+                continue
+            if (a := addr_of(iface)):
+                return a
+    return ""
+
+
+async def addon_public_url(container_port: int = 8000) -> str:
+    """The URL a device on the LAN can actually reach us at, when we run as a Home
+    Assistant add-on. Empty when we don't.
+
+    Inside an add-on the container sits on Home Assistant's internal bridge, so
+    ``detect_local_ip()`` — which asks the OS which interface reaches the gateway —
+    truthfully answers with something like ``172.30.33.4``. That is right for the
+    container and useless to an ESP32 on the LAN, and it is what we were handing the
+    gateway to register and link back to.
+
+    Neither half of the real answer is visible from in here: the host's own address, and
+    the port our container is published on (the user can remap it). Supervisor knows both,
+    so ask it. Requires ``hassio_api: true`` in the add-on manifest.
+    """
+    import os
+
+    import httpx2 as httpx
+
+    token = os.environ.get("SUPERVISOR_TOKEN", "")
+    if not token:
+        return ""                       # not an add-on; the socket trick is right
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.get("http://supervisor/addons/self/info", headers=headers)
+            info = r.json()
+            info = info.get("data", info)
+            r = await c.get("http://supervisor/network/info", headers=headers)
+            net = r.json()
+            net = net.get("data", net)
+    except Exception as e:
+        log.warning("add-on: could not ask Supervisor for the host address (%s) — "
+                    "set the Companion URL option if the gateway can't reach us", e)
+        return ""
+
+    port = (info.get("network") or {}).get(f"{container_port}/tcp")
+    if not port:
+        log.warning("add-on: port %d/tcp is not published, so nothing on the LAN can "
+                    "reach the companion. Publish it in the add-on's Network settings, "
+                    "or set the Companion URL option.", container_port)
+        return ""
+    ip = _primary_ipv4(net.get("interfaces") or [])
+    if not ip:
+        log.warning("add-on: Supervisor reported no host IPv4 address")
+        return ""
+    url = f"http://{ip}:{port}"
+    log.info("add-on: registering with the gateway as %s (the host's address, not the "
+             "container's)", url)
+    return url
+
+
+def detect_local_ip(gateway_url: str = "") -> str | None:
+    """Best-effort: the LAN IP of the interface that reaches the gateway.
+
+    Opening a UDP socket toward an address (no packets sent) makes the OS pick
+    the outbound interface; its local address is the IP the gateway would see.
+    We only aim at IP targets (the gateway's IP if it's one, else a public IP)
+    so we never do a slow/blocking hostname lookup on the event loop.
+    """
+    import ipaddress
+    import socket
+
+    targets = []
+    host = _host_of(gateway_url)
+    if host:
+        try:
+            ipaddress.ip_address(host)
+            targets.append(host)   # only when the gateway URL is already an IP
+        except ValueError:
+            pass
+    targets.append("8.8.8.8")      # public IP → gives the primary interface
+
+    for target in targets:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect((target, 80))
+            ip = s.getsockname()[0]
+            if ip and not ip.startswith("127."):
+                return ip
+        except Exception:
+            continue
+        finally:
+            s.close()
+    return None
+
+
+# The tabs a gateway advertises about itself (Gateway 3.4+) belong to THAT gateway,
+# so they live on its Display (display.gateway_tabs) — not here. A module global
+# would be last-writer-wins the moment a second gateway registers: the nav would
+# show whichever one most recently answered. post_companion() hands the tabs it
+# learned to the display it was called for.
+
+
+async def post_companion(gateway_url: str, *, url: str | None = None,
+                         status: str | None = None, timeout: float = 5.0,
+                         display=None) -> bool:
+    """Register / heartbeat / deregister with the gateway (v3.0+).
+
+    ``url`` set → (re)register that URL; ``url=""`` → deregister; ``status`` →
+    update the running-status the gateway shows on its status page. Best-effort:
+    a transiently-unreachable gateway is simply retried on the next heartbeat.
+
+    Registering also advertises our tabs, and reads the gateway's own tabs back out
+    of the reply (Gateway 3.4+) so each side's nav links exactly what the other has
+    — see tabs.py. A gateway that answers without ``gwTabs`` is an older one: we
+    keep whatever we had (i.e. nothing), and the UI falls back to its built-in list.
+
+    ``display`` is the Display this gateway belongs to; the tabs it advertises are
+    stored there. Omit it and the reply's tabs are simply not recorded (which is what
+    a caller that only wants to heartbeat, or a test, wants).
+    """
+    if not gateway_url:
+        return False
+    body: dict = {}
+    if url is not None:
+        body["url"] = url
+    if status is not None:
+        body["status"] = status
+    if not body:
+        return False
+    # Only advertise alongside a registration — a deregister (url="") is us going
+    # away, and a status-only heartbeat has nothing to say about tabs.
+    if url:
+        body["tabs"] = COMPANION_TABS
+    try:
+        r = await _arequest("POST", gateway_url, "/api/companion", json=body,
+                            timeout=timeout)
+        if r.status_code < 400:
+            try:
+                tabs = clean_tabs(r.json().get("gwTabs"))
+            except Exception:
+                tabs = []          # not JSON, or no gwTabs: a pre-3.4 physical gateway
+            if tabs and display is not None and tabs != display.gateway_tabs:
+                log.info("gateway advertises %d tabs: %s", len(tabs),
+                         ", ".join(x["id"] for x in tabs))
+            if tabs and display is not None:
+                display.gateway_tabs = tabs
+        return r.status_code < 400
+    except Exception as e:
+        log.debug("companion post skipped: %s", e)
+        return False
+
+
+async def home_all(gateway_url: str, timeout: float = 10.0) -> bool:
+    """Broadcast a Home to every module via ``POST /api/flap/home {"id": -1}``.
+
+    The gateway sends the RS-485 broadcast (``m*h``) and returns immediately
+    (fire-and-forget), so this resolves quickly. Raises on an unreachable gateway
+    or a non-2xx response; returns True when the gateway accepts the command.
+    """
+    r = await _arequest("POST", gateway_url, "/api/flap/home", json={"id": -1},
+                        timeout=timeout)
+    r.raise_for_status()
+    return r.status_code < 400
+
+
+def gateway_version(gw: dict) -> tuple[int, int] | None:
+    """(major, minor) parsed from a gateway /api/config document, or None.
+
+    CAUTION — what this number MEANS depends on the product. A physical SplitFlap
+    Gateway reports its API level here; the Matrix Gateway reports its own
+    firmware version. So a bare
+    ``>= (major, minor)`` gate keyed on a PHYSICAL-gateway feature would wrongly
+    open for a Matrix wall — check ``is_matrix_product`` (or a capability token)
+    alongside the version for anything one product lacks."""
+    raw = gw.get("version") or gw.get("fw") or ""
+    m = re.search(r"(\d+)\.(\d+)", str(raw))
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def is_matrix_product(gw: dict) -> bool:
+    """Whether a /api/config document belongs to a Matrix Gateway (vs a
+    physical split-flap gateway) — the product line, not a version threshold."""
+    p = str(gw.get("product") or "").lower()
+    return "matrix" in p and "gateway" in p
+
+
+def supports_settings(gw: dict) -> bool:
+    """Whether the gateway can store the companion's settings blob. Keyed on the
+    PRODUCT first: every Matrix Gateway has the store (and its ``version`` numbers its own product
+    line, so a bare number comparison would compare across products); a physical
+    gateway grew it at 3.1."""
+    if is_matrix_product(gw):
+        return True
+    v = gateway_version(gw)
+    return v is not None and v >= (3, 1)
+
+
+# --- companion settings blob, stored on the gateway (3.1+), gzipped -----------
+# These are synchronous (they run in a background debounce thread and at startup),
+# unlike the async helpers above. Contract with the gateway firmware:
+#   GET  /api/companion/settings -> 200 + gzipped JSON body, or 404/204 when none
+#   PUT  /api/companion/settings <- gzipped JSON body (store atomically), 2xx on ok
+
+def fetch_gateway_settings(url: str, timeout: float = 8.0) -> dict | None:
+    """Fetch + decompress the stored settings doc, or None (nothing stored / error)."""
+
+    with _settings_transfer(url):     # pause THIS display's send loop for the transfer
+        try:
+            r = _request("GET", url, "/api/companion/settings", timeout=timeout)
+            log.debug("gateway settings GET -> %s (%d bytes)", r.status_code, len(r.content or b""))
+            if r.status_code != 200 or not r.content:
+                return None
+            raw = r.content
+            try:
+                raw = gzip.decompress(raw)
+            except (OSError, EOFError):
+                pass   # tolerate an uncompressed body
+            doc = json.loads(raw.decode("utf-8"))
+            return doc if isinstance(doc, dict) else None
+        except Exception as e:
+            log.warning("could not fetch settings from gateway: %s", e)
+            return None
+
+
+def push_gateway_settings(url: str, doc: dict, timeout: float = 8.0) -> bool:
+    """Compress + PUT the settings doc to the gateway. Best-effort (returns success)."""
+
+    with _settings_transfer(url):     # pause THIS display's send loop for the transfer
+        try:
+            body = gzip.compress(json.dumps(doc, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), 6)
+            r = _request("PUT", url, "/api/companion/settings", content=body,
+                         headers={"Content-Type": "application/gzip"}, timeout=timeout)
+            log.debug("gateway settings PUT %d gzip bytes -> %s", len(body), r.status_code)
+            return r.status_code < 400
+        except Exception as e:
+            log.warning("could not push settings to gateway: %s", e)
+            return False
+
+
+def _as_int(v):
+    """Coerce a gateway field to int — tolerating a numeric string — else None, so a
+    grid resync isn't silently dropped if the firmware serializes numbers as strings."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float) and v.is_integer():
+        return int(v)
+    if isinstance(v, str) and v.strip().lstrip("-").isdigit():
+        return int(v.strip())
+    return None
+
+
+def build_sync_patch(gw: dict) -> dict:
+    """Map a gateway /api/config document to a companion config patch.
+
+    The grid geometry and (firmware v3.9+) the default cascade pacing are synced — those the
+    gateway is the source of truth for. The transport choice, the gateway URL and the companion's
+    own Home Assistant broker are companion-owned and left untouched. (A broker a pre-3.0 gateway
+    publishes here is ignored too: the companion's HA integration takes its broker from local
+    config only, and a firmware 3.0+ gateway has no MQTT.)
+    """
+    grid: dict = {}
+    rows, cols = _as_int(gw.get("gridRows")), _as_int(gw.get("gridCols"))
+    if rows is not None:
+        grid["rows"] = max(1, rows)
+    if cols is not None:
+        grid["cols"] = max(1, cols)
+
+    patch: dict = {}
+    if grid:
+        patch["grid"] = grid
+    # The wall's default per-module pacing (step_ms). The companion inherits it as
+    # display.transition_speed — which every page send and the Compose default already read —
+    # so a large wall that needs slower pacing is configured once, on the gateway. Absent (older
+    # firmware) leaves the companion's own default (15) in place.
+    step = _as_int(gw.get("stepMs"))
+    if step is not None:
+        patch["display"] = {"transition_speed": max(0, min(200, step))}
+    return patch
+
+
+# --- the kitchen timer + daily alarms (Matrix Gateway /api/timer, /api/alarms) -----
+# Thin REST clients over the pooled _request seam, {}/[]/False on any failure — the
+# HA MQTT device and the MCP tools drive these; capability gating (caps.can_timer /
+# can_alarms, from the "timer"/"alarms" feature tokens) is the caller's job.
+
+_DAY_NAMES = ("sun", "mon", "tue", "wed", "thu", "fri", "sat")   # bit0=Sunday (tm_wday)
+_DAY_WORDS = {"daily": 0x7F, "weekdays": 0x3E, "weekends": 0x41}
+
+
+def days_to_mask(days) -> int:
+    """A day spec -> the firmware bitmask (bit0=Sun … bit6=Sat). Accepts an int mask,
+    'daily'/'weekdays'/'weekends', or comma/space-separated day names ('mon,tue')."""
+    if isinstance(days, int):
+        return days & 0x7F
+    t = str(days or "").strip().lower()
+    if not t:
+        return 0x7F
+    if t in _DAY_WORDS:
+        return _DAY_WORDS[t]
+    mask = 0
+    for tok in t.replace(",", " ").split():
+        tok = tok[:3]
+        if tok not in _DAY_NAMES:
+            raise ValueError(f"unknown day {tok!r} — use {'/'.join(_DAY_NAMES)}, "
+                             "'daily', 'weekdays' or 'weekends'")
+        mask |= 1 << _DAY_NAMES.index(tok)
+    return mask or 0x7F
+
+
+def mask_to_days(mask: int) -> str:
+    """The firmware bitmask back to a readable spec ('daily', 'weekdays', 'mon,tue')."""
+    mask &= 0x7F
+    for word, m in _DAY_WORDS.items():
+        if mask == m:
+            return word
+    return ",".join(n for i, n in enumerate(_DAY_NAMES) if mask >> i & 1) or "daily"
+
+
+def timer_get(url: str, timeout: float = 5.0) -> dict:
+    """{'active', 'remaining', 'alarmFiring'} — or {} when the wall doesn't answer."""
+    try:
+        r = _request("GET", url, "/api/timer", timeout=timeout)
+        doc = r.json() if r.status_code == 200 else {}
+        return doc if isinstance(doc, dict) else {}
+    except Exception as e:
+        log.debug("timer_get failed: %s", e)
+        return {}
+
+
+def timer_start(url: str, seconds: int, timeout: float = 5.0) -> dict:
+    """Start the on-device countdown (1 s .. 24 h). Returns the reply ({'remaining'})."""
+    try:
+        r = _request("POST", url, "/api/timer", json={"sec": int(seconds)}, timeout=timeout)
+        doc = r.json() if r.status_code == 200 else {}
+        return doc if isinstance(doc, dict) else {}
+    except Exception as e:
+        log.debug("timer_start failed: %s", e)
+        return {}
+
+
+def timer_stop(url: str, timeout: float = 5.0) -> bool:
+    """Cancel a running countdown AND dismiss a firing alarm (the firmware couples them)."""
+    try:
+        r = _request("POST", url, "/api/timer", json={"stop": True}, timeout=timeout)
+        return r.status_code == 200
+    except Exception as e:
+        log.debug("timer_stop failed: %s", e)
+        return False
+
+
+def alarms_get(url: str, timeout: float = 5.0) -> list:
+    """The four alarm slots: [{'time': 'HH:MM', 'days': mask, 'enabled': bool}, …] ([] on failure)."""
+    try:
+        r = _request("GET", url, "/api/alarms", timeout=timeout)
+        doc = r.json() if r.status_code == 200 else []
+        return doc if isinstance(doc, list) else []
+    except Exception as e:
+        log.debug("alarms_get failed: %s", e)
+        return []
+
+
+def alarms_set(url: str, slots: list, timeout: float = 5.0) -> bool:
+    """Replace ALL four slots (the firmware's POST is whole-list; callers read-modify-write)."""
+    try:
+        r = _request("POST", url, "/api/alarms", json=list(slots)[:4], timeout=timeout)
+        return r.status_code == 200
+    except Exception as e:
+        log.debug("alarms_set failed: %s", e)
+        return False
+
+
+# --- Quiet Time + panel settings (the curated gateway-settings surface) ------------
+# The companion, HACS integration and MCP all patch the same few knobs: Quiet Time
+# (now + schedule), the speaker, brightness and the dim schedule. Thin sync clients,
+# {}/False on failure; section availability follows the "quiet"/"sound"/"brightness"
+# capability tokens (caps.can_quiet / can_sound / can_brightness).
+
+def quiet_get(url: str, timeout: float = 5.0) -> dict:
+    """{'on': bool} — is Quiet Time active right now."""
+    try:
+        r = _request("GET", url, "/api/quiet", timeout=timeout)
+        doc = r.json() if r.status_code == 200 else {}
+        return doc if isinstance(doc, dict) else {}
+    except Exception as e:
+        log.debug("quiet_get failed: %s", e)
+        return {}
+
+
+def quiet_set(url: str, on: bool, timeout: float = 5.0) -> dict:
+    """Toggle Quiet Time now. The firmware REFUSES a manual OFF inside a scheduled
+    window (the schedule wins) — the reply's 'on' says what actually holds."""
+    try:
+        r = _request("POST", url, "/api/quiet", json={"on": bool(on)}, timeout=timeout)
+        doc = r.json() if r.status_code == 200 else {}
+        return doc if isinstance(doc, dict) else {}
+    except Exception as e:
+        log.debug("quiet_set failed: %s", e)
+        return {}
+
+
+def quiet_schedule_get(url: str, timeout: float = 5.0) -> dict:
+    """{'enabled', 'start', 'end', 'days' (mask), 'offset'} — the daily window."""
+    try:
+        r = _request("GET", url, "/api/quiet/schedule", timeout=timeout)
+        doc = r.json() if r.status_code == 200 else {}
+        return doc if isinstance(doc, dict) else {}
+    except Exception as e:
+        log.debug("quiet_schedule_get failed: %s", e)
+        return {}
+
+
+def quiet_schedule_set(url: str, patch: dict, timeout: float = 5.0) -> bool:
+    """POST a partial schedule ({enabled/start/end/days/offset} — only what changed).
+    The tz offset is browser-owned on the gateway's own UI; callers here should send
+    it only when they mean to move the schedule's clock."""
+    try:
+        r = _request("POST", url, "/api/quiet/schedule", json=dict(patch), timeout=timeout)
+        return r.status_code == 200
+    except Exception as e:
+        log.debug("quiet_schedule_set failed: %s", e)
+        return False
+
+
+def config_settings_set(url: str, patch: dict, timeout: float = 8.0) -> bool:
+    """POST /api/config/settings — the gateway's partial settings write (panelBright,
+    dim*, soundEnabled, soundVolume, …). Send ONLY the keys being changed."""
+    try:
+        r = _request("POST", url, "/api/config/settings", json=dict(patch), timeout=timeout)
+        return r.status_code == 200
+    except Exception as e:
+        log.debug("config_settings_set failed: %s", e)
+        return False
+
+
+def config_get(url: str, timeout: float = 5.0) -> dict:
+    """GET /api/config (sync twin of fetch_gateway_config) — {} on failure."""
+    try:
+        r = _request("GET", url, "/api/config", timeout=timeout)
+        doc = r.json() if r.status_code == 200 else {}
+        return doc if isinstance(doc, dict) else {}
+    except Exception as e:
+        log.debug("config_get failed: %s", e)
+        return {}
+
+
+def read_settings(url: str, caps) -> dict:
+    """The curated settings snapshot the REST route and MCP tool both serve: sections
+    (quiet / sound / brightness+dim) keyed by the wall's capability tokens."""
+    out: dict = {"supported": {"quiet": bool(getattr(caps, "can_quiet", False)),
+                               "sound": bool(getattr(caps, "can_sound", False)),
+                               "brightness": bool(getattr(caps, "can_brightness", False))}}
+    if not url or not any(out["supported"].values()):
+        return out
+    if out["supported"]["quiet"]:
+        q = quiet_get(url)
+        sched = quiet_schedule_get(url)
+        out["quiet"] = {"on": bool(q.get("on")),
+                        "schedule": {"enabled": bool(sched.get("enabled")),
+                                     "start": sched.get("start", "22:00"),
+                                     "end": sched.get("end", "07:00"),
+                                     "days": mask_to_days(int(sched.get("days") or 0x7F))}}
+    if out["supported"]["sound"] or out["supported"]["brightness"]:
+        cfg = config_get(url)
+        if out["supported"]["sound"]:
+            out["sound"] = {"enabled": bool(cfg.get("soundEnabled")),
+                            "volume": int(cfg.get("soundVolume") or 0)}
+        if out["supported"]["brightness"]:
+            out["brightness"] = int(cfg.get("panelBright") or 0)
+            out["dim"] = {"enabled": bool(cfg.get("dimEnabled")),
+                          "start": cfg.get("dimStart", "22:00"),
+                          "end": cfg.get("dimEnd", "07:00"),
+                          "level": int(cfg.get("dimLevel") or 0)}
+    return out
+
+
+def _hhmm(v, what: str) -> str:
+    import re
+    t = str(v).strip()
+    if not re.fullmatch(r"([01]?\d|2[0-3]):[0-5]\d", t):
+        raise ValueError(f"{what} must be HH:MM (24-hour)")
+    return t
+
+
+def apply_settings_patch(url: str, caps, patch: dict) -> dict:
+    """Apply a partial settings patch (the shape ``read_settings`` returns) and say
+    what was applied. Raises ValueError for a bad patch, LookupError for a section
+    the wall's capabilities don't carry, RuntimeError when the gateway refuses —
+    callers map those to their own error surfaces (400 / 409 / 502, tool errors).
+
+    Note: while a Quiet-Time SCHEDULE window is active the firmware refuses a manual
+    quiet OFF (the schedule wins) — ``applied['quiet_on']`` reports what holds."""
+    if not isinstance(patch, dict) or not patch:
+        raise ValueError("a patch object is required")
+    unknown = set(patch) - {"quiet", "sound", "brightness", "dim"}
+    if unknown:
+        raise ValueError(f"unknown sections: {', '.join(sorted(unknown))}")
+    applied: dict = {}
+    if "quiet" in patch:
+        if not getattr(caps, "can_quiet", False):
+            raise LookupError("this gateway has no Quiet Time")
+        q = patch["quiet"] or {}
+        if "on" in q:
+            got = quiet_set(url, bool(q["on"]))
+            if not got.get("ok"):
+                raise RuntimeError("the gateway refused the quiet toggle")
+            applied["quiet_on"] = bool(got.get("on"))
+        sched = q.get("schedule")
+        if sched:
+            sp: dict = {}
+            if "enabled" in sched:
+                sp["enabled"] = bool(sched["enabled"])
+            for k in ("start", "end"):
+                if k in sched:
+                    sp[k] = _hhmm(sched[k], k)
+            if "days" in sched:
+                sp["days"] = days_to_mask(sched["days"])
+            if sp and not quiet_schedule_set(url, sp):
+                raise RuntimeError("the gateway refused the quiet schedule")
+            if sp:
+                applied["quiet_schedule"] = sp
+    cfg_patch: dict = {}
+    if "sound" in patch:
+        if not getattr(caps, "can_sound", False):
+            raise LookupError("this gateway has no speaker")
+        snd = patch["sound"] or {}
+        if "enabled" in snd:
+            cfg_patch["soundEnabled"] = bool(snd["enabled"])
+        if "volume" in snd:
+            cfg_patch["soundVolume"] = max(0, min(100, int(snd["volume"])))
+    if "brightness" in patch or "dim" in patch:
+        if not getattr(caps, "can_brightness", False):
+            raise LookupError("this gateway has no brightness control")
+        if "brightness" in patch:
+            cfg_patch["panelBright"] = max(1, min(255, int(patch["brightness"])))
+        dim = patch.get("dim") or {}
+        if "enabled" in dim:
+            cfg_patch["dimEnabled"] = bool(dim["enabled"])
+        for k, gk in (("start", "dimStart"), ("end", "dimEnd")):
+            if k in dim:
+                cfg_patch[gk] = _hhmm(dim[k], f"dim.{k}")
+        if "level" in dim:
+            cfg_patch["dimLevel"] = max(1, min(255, int(dim["level"])))
+    if cfg_patch:
+        if not config_settings_set(url, cfg_patch):
+            raise RuntimeError("the gateway refused the settings write")
+        applied["config"] = cfg_patch
+    if not applied:
+        raise ValueError("nothing to change in the patch")
+    return applied

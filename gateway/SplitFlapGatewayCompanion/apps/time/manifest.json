@@ -1,0 +1,59 @@
+{
+  "id": "time",
+  "i18n": true,
+  "name": "Time",
+  "icon": "⏱️",
+  "description": "Live clock",
+  "type": "functional",
+  "surfaces": ["flap", "matrix"],
+  "lcd_ops": true,
+  "refresh_interval": 1,
+  "loop_delay": 1,
+  "category": "time",
+  "settings": [
+    {
+      "key": "timezone",
+      "label": "Timezone (override global)",
+      "type": "search_chips",
+      "searchUrl": "/timezones",
+      "resultKey": "zones",
+      "maxItems": 1,
+      "global_key": true
+    },
+    {
+      "key": "time_format",
+      "label": "Time Format",
+      "type": "toggle",
+      "options": [
+        {
+          "value": "12hr",
+          "label": "12hr"
+        },
+        {
+          "value": "24hr",
+          "label": "24hr"
+        }
+      ],
+      "global_key": true
+    },
+    {
+      "key": "show_seconds",
+      "label": "Show seconds",
+      "type": "toggle",
+      "default": "no",
+      "note": "Matrix Gateway walls only — physical flaps can't keep up with seconds.",
+      "options": [
+        {
+          "value": "yes",
+          "label": "Yes"
+        },
+        {
+          "value": "no",
+          "label": "No"
+        }
+      ]
+    }
+  ],
+  "min_rows": 1,
+  "min_cols": 8
+}

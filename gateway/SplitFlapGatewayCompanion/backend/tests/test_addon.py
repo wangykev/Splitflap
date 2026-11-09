@@ -1,0 +1,471 @@
+"""Tests for the Home Assistant add-on packaging (addon/) and the two things it needs
+from the app: reading /data/options.json, and serving the SPA under an ingress prefix.
+
+The add-on runs the SAME image the project publishes — there is no add-on build — so the
+failure modes are not compile errors, they are silent ones:
+
+* ``version`` drifting from VERSION, so Supervisor pulls a tag that was never pushed.
+* An option in config.yaml that nothing reads, so the toggle does nothing.
+* An absolute ``/api/...`` URL in the SPA, which under ingress resolves against the Home
+  Assistant root and 404s — the page loads and then quietly does nothing.
+
+None of those show up in a unit test of the app, so they get one here.
+"""
+
+import json
+import re
+from pathlib import Path
+
+import pytest
+import yaml
+from fastapi.testclient import TestClient
+
+from conftest import json_response
+
+ROOT = Path(__file__).resolve().parents[2]
+STATIC = ROOT / "backend" / "app" / "static"
+
+# Every add-on this repository publishes: any directory with a config.yaml. There are two
+# — addon/ (stable) and addon-beta/ (prerelease) — and these tests cover each. ADDON is the
+# stable one, used for the channel-neutral structural checks.
+CHANNELS = {p.parent.name: yaml.safe_load(p.read_text("utf-8"))
+            for p in sorted(ROOT.glob("*/config.yaml"))}
+ADDON = CHANNELS["addon"]
+CHANNEL_IDS = sorted(CHANNELS)
+
+
+def _git_tags():
+    import subprocess
+    return set(subprocess.run(["git", "tag"], cwd=ROOT, capture_output=True, text=True)
+               .stdout.split())
+
+
+# --- the manifest -------------------------------------------------------------
+@pytest.mark.parametrize("chan", CHANNEL_IDS)
+def test_each_channel_pins_a_real_image(chan):
+    """`image` has no build, so Supervisor pulls ghcr...:<version>. That tag must exist,
+    or the install fails — so a channel's version has to be the release being cut now
+    (VERSION) or one already tagged."""
+    version = CHANNELS[chan]["version"]
+    current = (ROOT / "VERSION").read_text().strip()
+    assert version == current or f"v{version}" in _git_tags(), \
+        f"{chan} pins {version}, which is neither VERSION nor a tagged release"
+
+
+def test_each_channel_has_its_own_slug():
+    """A slug is the add-on's identity. Two channels sharing one would collide instead of
+    sitting beside each other in the store."""
+    slugs = [c["slug"] for c in CHANNELS.values()]
+    assert len(slugs) == len(set(slugs)), f"duplicate slug across channels: {slugs}"
+
+
+def test_the_beta_channel_is_flagged_as_such():
+    beta = CHANNELS["addon-beta"]
+    assert beta["slug"].endswith("_beta")
+    assert beta["stage"] == "experimental"
+    assert "beta" in beta["name"].lower()
+
+
+def test_the_stable_channel_is_not_flagged_experimental():
+    stable = CHANNELS["addon"]
+    assert not stable["slug"].endswith("_beta")
+    assert stable.get("stage") != "experimental"
+
+
+@pytest.mark.parametrize("chan", CHANNEL_IDS)
+def test_the_manifest_has_what_supervisor_requires(chan):
+    addon = CHANNELS[chan]
+    for key in ("name", "version", "slug", "description", "arch"):
+        assert addon.get(key), f"{chan}: missing required key: {key}"
+    assert set(addon["arch"]) <= {"aarch64", "amd64", "armv7", "armhf", "i386"}
+
+
+@pytest.mark.parametrize("chan", CHANNEL_IDS)
+def test_ingress_is_on_and_points_at_the_app_port(chan):
+    addon = CHANNELS[chan]
+    assert addon["ingress"] is True
+    assert addon["ingress_port"] == 8000
+
+
+@pytest.mark.parametrize("chan", CHANNEL_IDS)
+def test_the_port_is_published_for_the_non_browser_clients(chan):
+    """Ingress serves the UI, but a Vestaboard rest_command and an MCP client are not the
+    HA frontend — they need a real port or they cannot reach us at all."""
+    assert CHANNELS[chan]["ports"]["8000/tcp"] == 8000
+
+
+@pytest.mark.parametrize("chan", CHANNEL_IDS)
+def test_ui_language_is_a_dropdown_of_the_real_languages(chan):
+    """A free-text language field invites typos that silently fall back to English.
+    The schema must offer exactly the languages the app knows, plus the "auto"
+    sentinel (a list() cannot have a blank option, so "auto" carries "not set")."""
+    from app import i18n
+
+    schema = CHANNELS[chan]["schema"]["ui_language"]
+    assert schema.startswith("list(") and schema.endswith(")"), schema
+    choices = schema[len("list("):-1].split("|")
+    assert choices[0] == "auto"
+    assert choices[1:] == [o["value"] for o in i18n.LANGUAGE_OPTIONS]
+    assert CHANNELS[chan]["options"]["ui_language"] == "auto"
+
+
+@pytest.mark.parametrize("chan", CHANNEL_IDS)
+def test_home_assistant_is_optional_and_off_the_config_page(chan):
+    """As an add-on, the MQTT device follows the gateway's own Home Assistant switch
+    ("auto"), so the option is noise on the Configuration page. Keeping it OUT of
+    `options:` while leaving it optional in `schema:` parks it under HA's "unused
+    optional configuration options" — still settable, no longer in the way. Absent
+    must mean the app's own default, not a behavior change."""
+    from app import config as cfg
+
+    addon = CHANNELS[chan]
+    assert "home_assistant" not in addon["options"]
+    assert addon["schema"]["home_assistant"] == "list(auto|true|false)?"
+    assert cfg.DEFAULTS["ha"]["enabled"] == "auto"
+
+
+def test_absent_home_assistant_option_changes_nothing(monkeypatch, tmp_path):
+    """The override tree must not carry an `ha` key when the option isn't set."""
+    from app import config as cfg
+
+    monkeypatch.setattr(cfg, "addon_options", lambda: {"gateway_url": "http://g"})
+    assert "ha" not in cfg._addon_overrides()
+    monkeypatch.setattr(cfg, "addon_options",
+                        lambda: {"gateway_url": "http://g", "home_assistant": "false"})
+    assert cfg._addon_overrides()["ha"] == {"enabled": False}
+
+
+@pytest.mark.parametrize("chan", CHANNEL_IDS)
+def test_every_option_is_actually_read_by_the_app(chan):
+    """An option nothing reads is a switch that does nothing — worse than no switch."""
+    from app import config as cfg
+
+    # DEFAULTS covers the config tree; these are read outside it (Config.__init__, or
+    # before Config exists at all — see addon_option).
+    known = set(cfg.DEFAULTS) | {"gateway_url", "mqtt_broker", "mqtt_port", "mqtt_username",
+                                 "mqtt_password", "companion_public_url",
+                                 "home_assistant", "vestaboard_key", "mcp_token",
+                                 "dev_mode", "ui_language", "log_level"}
+    addon = CHANNELS[chan]
+    for opt in set(addon["options"]) | set(addon["schema"]):
+        assert opt in known, f"{chan}: config.yaml offers {opt!r}, but nothing reads it"
+
+
+def test_the_two_channels_stay_in_sync():
+    """The stable and beta channels are the same app — only identity (slug/name/stage) and
+    version differ. If their options or schema drift, one channel is quietly missing a
+    setting the other has."""
+    a, b = CHANNELS["addon"], CHANNELS["addon-beta"]
+    assert a["options"] == b["options"]
+    assert a["schema"] == b["schema"]
+
+
+def test_the_two_channels_translations_stay_in_sync():
+    """Same parity, for the Configuration-tab labels. Nothing in translations/ is
+    channel-specific — identity (name/slug/stage) lives in config.yaml, and the options
+    the labels describe are pinned identical above — so the files must match outright.
+    (They drifted once: stable's gateway_url help lacked the multi-display comma-list
+    wording the beta had, long after multi-display went stable.)"""
+    a_dir, b_dir = ROOT / "addon" / "translations", ROOT / "addon-beta" / "translations"
+    a_files = sorted(p.name for p in a_dir.glob("*.yaml"))
+    b_files = sorted(p.name for p in b_dir.glob("*.yaml"))
+    assert a_files and a_files == b_files, \
+        f"channels offer different translation files: {a_files} vs {b_files}"
+    for name in a_files:
+        a = yaml.safe_load((a_dir / name).read_text("utf-8"))
+        b = yaml.safe_load((b_dir / name).read_text("utf-8"))
+        assert a == b, f"translations/{name} drifted between the channels"
+
+
+@pytest.mark.parametrize("chan", CHANNEL_IDS)
+def test_every_option_has_a_configuration_label(chan):
+    """An option missing from translations shows as its raw key in the Configuration tab.
+    This also pins the nesting: ui_language once sat indented under `network:` — where HA
+    never looks for option labels — and dev_mode had no entry at all."""
+    trans = yaml.safe_load((ROOT / chan / "translations" / "en.yaml").read_text("utf-8"))
+    labelled = set(trans["configuration"])
+    offered = set(CHANNELS[chan]["options"]) | set(CHANNELS[chan]["schema"])
+    missing = offered - labelled
+    assert not missing, f"{chan}: options with no translation label: {sorted(missing)}"
+    for key in offered:
+        assert trans["configuration"][key].get("name"), f"{chan}: {key} has no name label"
+
+
+def test_the_defaults_are_safe():
+    """The two write surfaces stay off until asked for."""
+    assert ADDON["options"]["vestaboard"] is False
+    assert ADDON["options"]["mcp"] is False
+
+
+# --- /data/options.json -------------------------------------------------------
+@pytest.fixture
+def options(tmp_path, monkeypatch):
+    """Stand in for Supervisor writing the user's Configuration tab to /data."""
+    from app import config as cfg
+
+    def write(doc):
+        p = tmp_path / "options.json"
+        p.write_text(json.dumps(doc))
+        monkeypatch.setattr(cfg, "ADDON_OPTIONS", p)
+        return cfg
+    return write
+
+
+def test_addon_options_become_config(options):
+    cfg = options({"gateway_url": "http://gw.local", "mcp": True, "vestaboard": True,
+                   "mqtt_password": "sekrit"})
+    ov = cfg._addon_overrides()
+    assert ov["transport"]["gateway_url"] == "http://gw.local"
+    assert ov["transport"]["mqtt"]["password"] == "sekrit"
+    assert ov["mcp"]["enabled"] is True
+    assert ov["vestaboard"]["enabled"] is True
+
+
+def test_addon_mqtt_broker_becomes_config(options):
+    """The gateway no longer supplies the HA broker (firmware 3.0), so an add-on user
+    sets it as an option — broker/port/username land in transport.mqtt for the
+    integration to connect."""
+    cfg = options({"gateway_url": "http://gw.local", "mqtt_broker": "core-mosquitto",
+                   "mqtt_port": 8883, "mqtt_username": "hass"})
+    mq = cfg._addon_overrides()["transport"]["mqtt"]
+    assert mq == {"broker": "core-mosquitto", "port": 8883, "username": "hass"}
+
+
+def test_a_stale_theme_option_is_ignored_not_fatal(options):
+    """`theme` was an option until the HA look became the only look. An existing install
+    still has it stored in options.json; it must be silently ignored."""
+    cfg = options({"gateway_url": "http://gw.local", "theme": "ha"})
+    ov = cfg._addon_overrides()
+    assert "theme" not in ov
+    assert ov["transport"]["gateway_url"] == "http://gw.local"
+
+
+def test_blank_optional_fields_do_not_clobber_defaults(options):
+    """HA writes "" for an untouched optional field. That must mean "not set", not
+    "set to empty" — an empty gateway_url would override a real one from the env."""
+    cfg = options({"gateway_url": "", "mqtt_password": "", "companion_public_url": ""})
+    assert cfg._addon_overrides() == {}
+
+
+def test_no_options_file_means_we_are_not_an_addon(options, tmp_path, monkeypatch):
+    from app import config as cfg
+    monkeypatch.setattr(cfg, "ADDON_OPTIONS", tmp_path / "nope.json")
+    assert cfg._addon_overrides() == {}
+    assert cfg.addon_options() == {}
+
+
+def test_env_still_beats_the_addon_options(options, monkeypatch):
+    """A hand-run container has to be able to override anything, add-on or not."""
+    cfg = options({"gateway_url": "http://from-addon"})
+    monkeypatch.setenv("GATEWAY_URL", "http://from-env")
+    c = cfg.Config()
+    assert c.transport["gateway_url"] == "http://from-env"
+
+
+def test_the_log_level_option_is_honored(options):
+    """It is read at import, before Config exists, so it bypasses the merge entirely —
+    which is exactly how it would end up silently ignored."""
+    cfg = options({"log_level": "DEBUG"})
+    assert cfg.addon_option("log_level", "INFO") == "DEBUG"
+
+
+# --- the startup preflight ----------------------------------------------------
+# The container's CMD is `python -m app`, and its guard ran on os.environ alone. An
+# add-on has NO env vars — the URL is typed into the Configuration tab and lands in
+# /data/options.json — so a correctly-configured add-on died at startup with
+# "GATEWAY_URL is not set", before Config (which does read that file) was ever built.
+def test_the_preflight_accepts_a_gateway_url_from_the_addon_options(options):
+    from app.__main__ import gateway_url
+    options({"gateway_url": "http://gw.local"})
+    assert gateway_url() == "http://gw.local"
+
+
+def test_the_preflight_still_prefers_the_environment(options, monkeypatch):
+    from app.__main__ import gateway_url
+    options({"gateway_url": "http://from-addon"})
+    monkeypatch.setenv("GATEWAY_URL", "http://from-env")
+    assert gateway_url() == "http://from-env"
+
+
+def test_the_preflight_still_refuses_when_nothing_is_set(options, monkeypatch):
+    from app.__main__ import gateway_url
+    options({})
+    monkeypatch.delenv("GATEWAY_URL", raising=False)
+    assert gateway_url() == ""
+
+
+# --- ingress ------------------------------------------------------------------
+def test_the_spa_makes_no_absolute_api_calls():
+    """Under ingress the page lives at /api/hassio_ingress/<token>/. A fetch to
+    "/api/apps" resolves against the HA root, not ours — the UI would load and then do
+    nothing. Every request must go through url(), which prefixes window.__BASE__."""
+    js = (STATIC / "app.js").read_text("utf-8")
+    bare = re.findall(r'fetch\(\s*["`]/', js)
+    assert not bare, f"{len(bare)} fetch() call(s) bypass url() and would break under ingress"
+
+
+def test_the_shell_carries_the_ingress_prefix():
+    from app import main
+    c = TestClient(main.app)
+    html = c.get("/", headers={"X-Ingress-Path": "/api/hassio_ingress/abc"}).text
+
+    assert 'window.__BASE__="/api/hassio_ingress/abc"' in html
+    assert 'href="/api/hassio_ingress/abc/styles.css' in html
+    assert 'src="/api/hassio_ingress/abc/app.js' in html
+
+
+def test_without_ingress_the_urls_are_untouched():
+    from app import main
+    c = TestClient(main.app)
+    html = c.get("/").text
+    assert 'window.__BASE__=""' in html
+    assert 'href="/styles.css' in html
+
+
+# --- the look -------------------------------------------------------------------
+# The Home Assistant design language is the companion's only look now — there is no theme
+# option, no COMPANION_THEME, and no separate stylesheet to forget to load.
+def test_the_ha_look_is_baked_into_the_base_stylesheet():
+    css = (STATIC / "styles.css").read_text("utf-8")
+    assert "The Home Assistant design language" in css       # the merged section
+    assert "prefers-color-scheme: dark" in css               # follows the OS
+    assert not (STATIC / "theme-ha.css").exists()            # the old opt-in file is gone
+
+
+def test_the_ha_section_leaves_the_flaps_alone():
+    """.board/.flap are hardcoded darks because they depict physical flaps. Re-skinning
+    them in HA's palette would be a lie about the hardware — so the HA section (everything
+    after its marker) must not restyle them."""
+    css = (STATIC / "styles.css").read_text("utf-8")
+    ha_section = css.split("The Home Assistant design language", 1)[1]
+    assert not re.search(r"^\.flap\s*\{", ha_section, re.M)
+    assert not re.search(r"^\.board\s*\{", ha_section, re.M)
+
+
+# --- the URL we register with the gateway -------------------------------------
+# An add-on container sits on Home Assistant's internal bridge, so asking the OS which
+# interface reaches the gateway truthfully answers 172.30.33.x. That is the container's
+# address; no ESP32 on the LAN can reach it, and it is what we were registering.
+import asyncio
+
+
+class _FakeSupervisor:
+    """Answers /addons/self/info and /network/info like Supervisor does."""
+
+    def __init__(self, port=8000, ip="192.168.1.50/24", primary=True, fail=False):
+        self.port, self.ip, self.primary, self.fail = port, ip, primary, fail
+        self.seen = []
+
+    def __call__(self, *a, **kw):
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get(self, url, headers=None):
+        if self.fail:
+            raise OSError("supervisor unreachable")
+        self.seen.append((url, (headers or {}).get("Authorization")))
+        if url.endswith("/addons/self/info"):
+            body = {"data": {"network": {"8000/tcp": self.port} if self.port else {}}}
+        else:
+            body = {"data": {"interfaces": [
+                {"interface": "hassio", "primary": False, "ipv4": {"ip_address": "172.30.33.4/23"}},
+                {"interface": "eth0", "primary": self.primary, "ipv4": {"ip_address": self.ip}},
+            ]}}
+        return json_response(body)
+
+
+@pytest.fixture
+def supervisor(monkeypatch):
+    import httpx2 as httpx
+    from app import gateway
+
+    def install(**kw):
+        fake = _FakeSupervisor(**kw)
+        monkeypatch.setattr(httpx, "AsyncClient", fake)
+        monkeypatch.setenv("SUPERVISOR_TOKEN", "tok")
+        return fake, gateway
+    return install
+
+
+def test_we_register_the_hosts_address_not_the_containers(supervisor):
+    fake, gateway = supervisor()
+    assert asyncio.run(gateway.addon_public_url(8000)) == "http://192.168.1.50:8000"
+    # ...and it authenticated with the Supervisor token.
+    assert all(auth == "Bearer tok" for _, auth in fake.seen)
+
+
+def test_the_published_host_port_is_used_not_our_own(supervisor):
+    """The user can remap the add-on's port; the gateway must be told the one the LAN
+    can actually connect to, not the 8000 we listen on inside the container."""
+    _, gateway = supervisor(port=8123)
+    assert asyncio.run(gateway.addon_public_url(8000)) == "http://192.168.1.50:8123"
+
+
+def test_an_unpublished_port_registers_nothing(supervisor):
+    """With no host port there is no way in, and a URL would be a lie."""
+    _, gateway = supervisor(port=None)
+    assert asyncio.run(gateway.addon_public_url(8000)) == ""
+
+
+def test_a_non_primary_interface_still_beats_the_bridge(supervisor):
+    _, gateway = supervisor(primary=False)
+    assert asyncio.run(gateway.addon_public_url(8000)) == "http://192.168.1.50:8000"
+
+
+def test_an_unreachable_supervisor_is_not_fatal(supervisor):
+    _, gateway = supervisor(fail=True)
+    assert asyncio.run(gateway.addon_public_url(8000)) == ""
+
+
+def test_outside_an_addon_we_do_not_ask_supervisor(monkeypatch):
+    from app import gateway
+    monkeypatch.delenv("SUPERVISOR_TOKEN", raising=False)
+    assert asyncio.run(gateway.addon_public_url(8000)) == ""
+
+
+def test_the_addon_may_call_the_supervisor_api():
+    """/network/info is refused without this, and we would silently fall back to the
+    container's own address again."""
+    assert ADDON["hassio_api"] is True
+
+
+def test_dev_mode_can_be_ticked_in_the_addon_config(options):
+    """It was env-only (COMPANION_DEV_MODE), and an add-on user has no way to set an
+    environment variable — so the Dev menu was simply unreachable there."""
+    cfg = options({"dev_mode": True, "gateway_url": "http://gw"})
+    assert cfg.Config().dev_mode is True
+
+
+def test_dev_mode_is_off_unless_asked_for(options):
+    cfg = options({"gateway_url": "http://gw"})
+    assert cfg.Config().dev_mode is False
+
+
+# --- the changelog ------------------------------------------------------------
+@pytest.mark.parametrize("chan", CHANNEL_IDS)
+def test_the_channel_changelog_has_an_entry_for_its_version(chan):
+    """Home Assistant shows CHANGELOG.md when an update is offered, matching on the
+    version heading. A release with no heading gives the user a blank update notice —
+    which is exactly what a changelog that quietly goes stale looks like."""
+    version = CHANNELS[chan]["version"]
+    changelog = (ROOT / chan / "CHANGELOG.md").read_text("utf-8")
+    assert f"## {version}" in changelog, \
+        f"{chan}/CHANGELOG.md has no '## {version}' heading — the update notice would be empty"
+
+
+@pytest.mark.parametrize("chan", CHANNEL_IDS)
+def test_every_changelog_entry_is_a_real_release(chan):
+    """A heading for a version that was never tagged means the notes name a build nobody
+    can install."""
+    changelog = (ROOT / chan / "CHANGELOG.md").read_text("utf-8")
+    listed = set(re.findall(r"^## (\S+)", changelog, re.M))
+    tags = _git_tags()
+    current = (ROOT / "VERSION").read_text().strip()
+    for v in listed:
+        assert f"v{v}" in tags or v == current, \
+            f"{chan}/CHANGELOG names {v}, which was never tagged"

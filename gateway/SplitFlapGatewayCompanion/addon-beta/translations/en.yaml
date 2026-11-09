@@ -1,0 +1,86 @@
+# Labels + help text for the add-on's Configuration tab. Without this HA falls back
+# to the raw option keys, which read like a config file rather than a settings page.
+#
+# Kept identical between addon/ and addon-beta/ (a test pins it): the two channels are
+# the same app and nothing here is channel-specific — identity (name/slug/stage) lives
+# in config.yaml, not in these labels.
+configuration:
+  gateway_url:
+    name: Gateway URL
+    description: >-
+      Your SplitFlapGateway, e.g. http://192.168.1.50. Required — the add-on will not
+      start without it. Grid size is read from the gateway, so this is normally the only
+      thing you need to set. To drive SEVERAL displays, list them separated by commas
+      (http://192.168.1.218,http://192.168.1.50): the first is the default display — the
+      one Home Assistant and the Vestaboard API drive when nothing names one — and each
+      gets its own geometry, apps, playlists and settings. You can also add displays from
+      the app's Tools menu.
+  mqtt_broker:
+    name: MQTT broker
+    description: >-
+      Only for the Home Assistant integration below. The host of your MQTT broker — e.g.
+      core-mosquitto for the HA Mosquitto add-on. Leave blank to keep the integration off.
+  mqtt_port:
+    name: MQTT port
+    description: >-
+      The broker's port. Defaults to 1883.
+  mqtt_username:
+    name: MQTT username
+    description: >-
+      The broker username, if it needs authentication.
+  mqtt_password:
+    name: MQTT password
+    description: >-
+      The broker password, if it needs authentication.
+  companion_public_url:
+    name: Companion URL
+    description: >-
+      This add-on's own URL, registered with the gateway so the gateway shows a
+      "Companion" tab linking back here. Leave blank to auto-detect.
+  home_assistant:
+    name: Home Assistant integration
+    description: >-
+      Publishes a "SplitFlap Companion" MQTT device with App/Playlist selects and a Stop
+      button. Needs the MQTT broker above. "auto" brings it up when a broker is set.
+  vestaboard:
+    name: Vestaboard-compatible API
+    description: >-
+      Answer the Vestaboard Local API, so anything already written for a Vestaboard — a
+      rest_command, a script, the HACS integration — drives this wall unchanged. Uses
+      port 8000 directly, not the sidebar.
+  vestaboard_key:
+    name: Vestaboard API key
+    description: >-
+      The key clients send as X-Vestaboard-Local-Api-Key. Leave blank and one is
+      generated on first use and kept with your settings.
+  mcp:
+    name: MCP server
+    description: >-
+      Expose the display as MCP tools, so an LLM client (Claude, an agent) can show a
+      message, run an app, or read the board. Served at /mcp on port 8000.
+  mcp_token:
+    name: MCP bearer token
+    description: >-
+      The token MCP clients send as "Authorization: Bearer ...". Leave blank and one is
+      generated on first use and kept with your settings.
+  ui_language:
+    name: UI language
+    description: >-
+      Language for the web UI itself (menus, buttons). "auto" follows your Home
+      Assistant language (per user, from your HA profile) and, outside Home
+      Assistant, the browser's. Pick a value to pin it instead. This is not the
+      flap content language — that is the Language setting inside the app.
+  dev_mode:
+    name: Developer mode
+    description: >-
+      Enables simulation mode in the ⚙ tools menu — run apps without driving the wall,
+      with a grid override while simulating. The menu itself is always available.
+  log_level:
+    name: Log level
+    description: >-
+      DEBUG adds the companion's own detail (gateway sync, settings mirror, app fetches)
+      without the noisy third-party wire logs.
+network:
+  8000/tcp: >-
+    Direct access. Needed only for the Vestaboard-compatible API and the MCP server —
+    the web UI is served through the sidebar and does not use this port.

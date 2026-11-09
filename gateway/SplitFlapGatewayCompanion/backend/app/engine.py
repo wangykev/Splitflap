@@ -1,0 +1,1375 @@
+"""
+engine.py — the display controller.
+
+Owns the active transport and turns "show this text" requests into timed frame
+sends, updating live state as it goes. One send runs at a time (an asyncio lock
+serializes bus access). The manual compose path, the app play-loop, playlists,
+and trigger interrupts all drive this same controller.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+
+from . import canvas, channel_art, device, gameinput, gateway, renderer
+from .plugins import app_id_from_ref
+from .config import Config
+from .state import DisplayState
+from .transport import DisplayTransport, SimTransport, build_transport
+
+log = logging.getLogger("companion.engine")
+
+
+class NeedsCanvasError(KeyError):
+    """run_app was asked to start a Matrix-panel app on a wall with no framebuffer.
+    A KeyError subclass so a caller that only knows "app not runnable" still catches it;
+    the apps route catches this type specifically to answer 409 instead of 404."""
+
+# Re-assert the current page at least this often (seconds) even when it has not changed, so a
+# drifted flap heals on a wall-clock bound during a static hold. Kept in step with the transport's
+# own _REPAINT_SECONDS (which drops the cell-diff), so the re-emit actually goes out whole.
+_PAGE_HEARTBEAT_S = 15.0
+
+# Only adopt the canvas draw stream for an app redrawing at least this often — comfortably
+# inside the stream's 30 s idle timeout, so a slow app never opens (and then loses) one.
+_CANVAS_STREAM_MAX_HOLD = 2.0
+
+# The multiview separator: a dim vertical line in each divider column, visible on
+# any app background but quiet enough not to read as content (LED floor ~40/ch).
+_ZONE_DIVIDER = (64, 70, 88)
+
+
+def _entry_label(entry: dict) -> str:
+    """A playlist entry as one word for the running-order view: the app id,
+    "(message)" for a composed entry, or the zones layout's name."""
+    if entry.get("type") == "compose":
+        return "(message)"
+    if entry.get("type") == "zones":
+        return str(entry.get("layout") or "(multiview)")
+    return app_id_from_ref(entry.get("app", "") or "(unknown)")
+
+
+class DisplayController:
+    def __init__(self, config: Config, state: DisplayState):
+        self.config = config
+        self.state = state
+        self._real_caps: device.Capabilities | None = None   # last caps a REAL wall reported (kept for sim mode)
+        self.transport: DisplayTransport = SimTransport()
+        self._send_lock = asyncio.Lock()
+        # A single "driver" task at a time: manual compose, an app play-loop, or
+        # an app-playlist loop. Starting one cancels the others (exclusive).
+        self._task: asyncio.Task | None = None
+        self.active_app: str | None = None
+        self.active_playlist: str | None = None
+        self.plugins = None  # set via attach_plugins()
+        # Told what is driving the display whenever that changes, so it can outlive the
+        # process (see attach_persist). Set via attach_persist().
+        self._persist = None
+        # Trigger interrupts briefly take over the display, then the driver resumes.
+        self._interrupt_lock = asyncio.Lock()
+        # Set = no interrupt in progress. The app/playlist loops await it rather than
+        # polling a boolean every 0.1 s.
+        self._interrupt_over = asyncio.Event()
+        # Set to cut the RUNNING playlist entry short (a tap gesture, or the skip
+        # API): every entry-scoped hold sleeps through _entry_sleep, which wakes on it,
+        # and the entry keep_going lambdas read it. Cleared at each entry's start.
+        self._skip_evt = asyncio.Event()
+        self._interrupt_over.set()
+        self._temp_task: asyncio.Task | None = None   # a timed show_temporary() message
+        # A trigger's overlay ticker clears itself after its TTL via one of these background
+        # tasks — companion-driven, so the duration is honoured even on firmware that predates
+        # the ticker `seconds` field. A monotonic token lets a newer ticker's clear supersede an
+        # older pending one (the newer POST already replaced it on the wall). See fire_overlay_ticker.
+        self._ticker_tasks: set[asyncio.Task] = set()
+        self._ticker_token = 0
+        # The page an app loop last put on the wall, for unchanged-page suppression.
+        # Valid only while the wall actually still shows it: _emit_page invalidates it
+        # on EVERY paint (an interrupt's text, a manual message, a failed send), and
+        # only a send that reached the wall re-validates it (record_as=). Without that,
+        # a static app would stay suppressed forever behind a trigger's text.
+        self._app_last_sent: str | None = None
+        # Bumped by every manual takeover (compose / home). fire_interrupt compares it
+        # so a message sent DURING a timed interrupt is not blanked when it ends.
+        self._takeovers = 0
+        # True while a CANVAS app owns the Matrix panel (it drew straight to the
+        # framebuffer, bypassing the flaps). The next driver to take over must hand
+        # the panel back to the reel wall first — see _cancel_task.
+        self._canvas_active = False
+        # Set by abort() when this controller is being DISCARDED (display disabled/deleted/
+        # re-created) — every driver loop's next _entry_sleep raises, so a loop whose task
+        # pointer was lost still dies. See abort().
+        self._dead = False
+        # When the app loop last painted a flap page. A non-anim app suppresses re-sending an
+        # unchanged page — so a flap that drifts while the page holds (another client on the same
+        # gateway, a transient) would never be re-asserted until the text finally changes. A
+        # heartbeat re-emit gives the transport a send to repaint through on a wall-clock bound.
+        self._last_page_emit = 0.0
+
+    def attach_plugins(self, plugins) -> None:
+        self.plugins = plugins
+
+    def attach_persist(self, cb) -> None:
+        """Register a callback told what is now driving the display — an app, a playlist,
+        or nothing. It is what lets a restart pick up where it left off (without it,
+        a container updating itself silently stops whatever was playing).
+
+        It lives here rather than in the endpoints because the display gets driven from
+        four places — the API, the scheduler, triggers and MCP — and only the engine sees
+        all of them.
+        """
+        self._persist = cb
+
+    def _remember(self, doc: dict | None) -> None:
+        """What is driving the display now. None = nothing."""
+        if not self._persist:
+            return
+        try:
+            self._persist(doc)
+        except Exception as e:                    # never let bookkeeping break playback
+            log.debug("could not record what is running: %s", e)
+
+    # -- lifecycle ----------------------------------------------------------
+    async def start(self) -> None:
+        await self._open_transport()
+
+    async def stop(self) -> None:
+        # A true shutdown: the transport is about to close, so nothing follows to auto-stop the
+        # panel's canvas mode — hand it back explicitly here.
+        await self._cancel_task(network_release=True)
+        await self._cancel_temp()
+        await self._safe_close(self.transport)
+
+    async def _open_transport(self) -> None:
+        build_error: str | None = None
+        # In sim mode, mark the wall's URL so canvas draws (which bypass the flap transport and
+        # POST straight to the panel) are suppressed too — a simulated canvas app renders into the
+        # preview without lighting the real panel.
+        canvas.set_sim(str(self.config.transport.get("gateway_url") or "").strip(),
+                       bool(self.config.sim_mode))
+        if self.config.sim_mode:
+            # Developer simulation mode: nothing is sent to the display.
+            self.transport = SimTransport()
+            self._sync_transport_state()
+            return
+        cfg = self.config.transport
+        try:
+            transport = build_transport(cfg)   # always REST
+        except Exception as e:
+            # Only reachable if no gateway_url is configured. Fall back to a sim
+            # no-op so the app still serves the preview, with *why* in the pill.
+            log.warning("REST transport unavailable (%s); using sim no-op", e)
+            build_error = f"rest: {e}"
+            transport = SimTransport()
+        try:
+            await transport.connect()
+        except Exception as e:
+            # A network failure does NOT downgrade to sim — we keep the selected
+            # transport so the UI honestly shows it offline (and it can recover).
+            log.warning("transport connect error (%s)", e)
+        self.transport = transport
+        self._sync_transport_state()
+        if build_error:
+            self.state.last_error = build_error
+
+    async def reload_transport(self) -> None:
+        """Swap the transport after a config change."""
+        old = self.transport
+        await self._open_transport()
+        if old is not self.transport:
+            await self._safe_close(old)
+
+    @staticmethod
+    async def _safe_close(transport: DisplayTransport | None) -> None:
+        if transport is None:
+            return
+        try:
+            await transport.close()
+        except Exception:
+            pass
+
+    def _sync_transport_state(self) -> None:
+        self.state.transport_type = self.transport.type_name
+        self.state.transport_connected = self.transport.connected
+        self.state.last_error = self.transport.last_error
+
+    def resize_grid(self) -> None:
+        self.state.resize(self.config.module_count())
+
+    # -- task control -------------------------------------------------------
+    async def _cancel_task(self, *, network_release: bool = False) -> None:
+        task = self._task
+        self._task = None
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+        await self._release_canvas(network=network_release)
+
+    async def _release_canvas(self, *, network: bool = False) -> None:
+        """Leave canvas mode if a canvas app had the Matrix panel. The single choke point every
+        driver switch passes through, so a canvas app is always let go before flaps (or another
+        canvas app) take the panel.
+
+        It does NOT eagerly hand the panel back to the reel wall (``POST /api/canvas {active:
+        false}``). That would make the firmware repaint the wall from the modules' retained state
+        — the flaps from BEFORE the canvas — and hold it there through the render + round-trip
+        gap until the replacement page lands: the "old flaps flash" on a canvas→flap switch. It is
+        also unnecessary, because whatever comes next auto-stops the panel's canvas mode itself:
+        the firmware drops raw-canvas on the first flap command (``-``/``+``/``h``), and every
+        switch here IS followed by a page — a flap app's page, ``clear()``'s blank on stop, a
+        playlist's next entry, or a new canvas app's own takeover. So the transition happens in
+        one step, with no window on the stale wall.
+
+        ``network=True`` is the exception — a true shutdown (``stop()``), where nothing follows to
+        auto-stop the canvas, so the panel is handed back explicitly."""
+        if not self._canvas_active:
+            return
+        self._canvas_active = False
+        # Close any open draw stream first: while it's open the drawing REST endpoints answer 409, so
+        # whatever takes the panel next (a flap page, another canvas app) must find it unlocked.
+        _url = str(self.config.transport.get("gateway_url") or "").strip()
+        if _url:
+            try:
+                await asyncio.to_thread(canvas.stream_end, _url)
+            except Exception as e:
+                log.debug("canvas stream close failed: %s", e)
+        if network:
+            # A hand-back to idle (an explicit stop, or shutdown): nothing follows to repaint
+            # the wall. Releasing canvas mode is not enough — on this hardware it only flips the
+            # flag and does NOT clear the panel's framebuffer, so the stopped app's last frame
+            # stays lit (an LCD left holding a canvas app's last frame after it was turned off). A
+            # flap-blank page can't be trusted either: it races the stream teardown and stays in
+            # canvas mode. Clear the framebuffer authoritatively instead.
+            await self._blank_panel(_url)
+        # The canvas app drew straight to the framebuffer, bypassing the flap transport's
+        # shown-cell cache — so it's now stale. Forget it, or the next flap page's unchanged
+        # cells would be skipped (and never repaint, so the canvas mode would never auto-stop).
+        try:
+            self.transport.forget()
+        except Exception as e:
+            log.debug("transport.forget failed: %s", e)
+
+    async def _blank_panel(self, url: str = "") -> None:
+        """Physically clear a canvas wall's framebuffer, then hand it back to the idle wall.
+
+        A stopped canvas app leaves its last frame in the panel: releasing canvas mode does not
+        repaint it away on this hardware, and a flap-blank page can race the stream teardown and
+        miss. ``take_over`` is the firmware's whole-panel clear — authoritative where a flap
+        command isn't — and ``release`` then returns the wall to its idle (flap) rendering over
+        the cleared buffer. Best-effort and off the event loop; a no-op on a wall with no
+        framebuffer, so a plain reel wall is untouched."""
+        # _caps() (the panel-render caps), not self.caps: it is the same source _take_panel used
+        # to claim the panel, so "could a canvas app draw here" answers consistently on both ends.
+        if not getattr(self._caps(), "has_canvas", False):
+            return
+        url = url or str(self.config.transport.get("gateway_url") or "").strip()
+        if not url:
+            return
+        try:
+            await asyncio.to_thread(canvas.take_over, url)   # firmware clears the whole panel
+            await asyncio.to_thread(canvas.release, url)      # hand back to the idle wall
+        except Exception as e:
+            log.debug("panel framebuffer blank failed: %s", e)
+
+    async def _cancel_temp(self) -> None:
+        """Cancel a timed show_temporary() message, if one is up. Without this, stop()
+        left the temp task alive to blank (or repaint) the wall seconds later."""
+        task, self._temp_task = self._temp_task, None
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    # -- manual compose -----------------------------------------------------
+    def skip_playlist_entry(self) -> bool:
+        """Advance the running playlist to its next entry NOW (gesture / API). True when
+        a playlist was driving and the skip was armed; False otherwise (nothing to skip)."""
+        if not self.active_playlist:
+            return False
+        self._skip_evt.set()
+        return True
+
+    # Set by abort(): this controller is being discarded and must never drive hardware
+    def abort(self) -> None:
+        """Synchronous kill switch for a controller being DISCARDED (display disabled,
+        deleted, re-created). Marks the controller dead (``_dead``, set in __init__) — every
+        driver loop's next ``_entry_sleep`` raises — and fire-and-forget cancels the tracked task.
+
+        This must be the FIRST thing display teardown does, precisely because it cannot
+        fail: the async teardown after it (HA, scheduler, controller.stop) can raise, and
+        before this existed an exception there skipped ``controller.stop()`` — leaking a
+        LIVE render loop on a discarded controller object. That orphan kept pushing frames
+        to the wall forever, unreachable by any stop (they all target the replacement
+        controller). The wall even rebooted mid-zombie and the loop simply re-adopted its
+        draw stream and carried on."""
+        self._dead = True
+        task, self._task = self._task, None
+        if task is not None and not task.done():
+            task.cancel()
+        # Pending trigger-ticker clears target THIS controller's gateway; drop them so a
+        # discarded controller can't fire a stray clear at a reused wall.
+        self._ticker_token += 1
+        for tk in list(self._ticker_tasks):
+            if not tk.done():
+                tk.cancel()
+        self._ticker_tasks.clear()
+
+    async def _entry_sleep(self, delay: float) -> None:
+        """asyncio.sleep(delay) that wakes immediately when the running playlist entry
+        is skipped. Outside a playlist the event is never set — an ordinary sleep."""
+        if self._dead:
+            raise asyncio.CancelledError("controller aborted (display discarded)")
+        if delay <= 0:
+            return
+        try:
+            await asyncio.wait_for(self._skip_evt.wait(), timeout=delay)
+        except asyncio.TimeoutError:
+            pass
+
+    def _clear_driver_flags(self) -> None:
+        self._skip_evt.clear()             # a skip must not leak past the run it aimed at
+        self.active_app = None
+        self.active_playlist = None
+        self.state.active_app = None
+        self.state.active_playlist = None
+        # Nothing is on the flaps that belongs to an app any more.
+        self.state.current_app = None
+        self.state.playlist_index = None
+        self.state.playlist_entries = None
+
+    def send_text_bg(self, text: str, style: str | None = None,
+                     speed: int | None = None, frame: bool = False) -> str:
+        """Stop any app/playlist and show ``text`` (background). Returns target.
+
+        ``frame``: the text is a FRAME, not words — its lowercase r/o/y/g/b/p/w are the
+        COLOR FLAPS. That is what an animation and a raw color grid are."""
+        clean = self._normalize(text, frame=frame)
+        self._clear_driver_flags()
+        self._takeovers += 1
+        # A manual message replaces whatever was playing, so there is nothing to come
+        # back to — a restart should leave the board alone, not resurrect the old app.
+        self._remember(None)
+        old = self._task
+        if old and not old.done():
+            old.cancel()  # releases the lock at its next await
+        self._task = asyncio.create_task(self._run_manual(clean, style=style, speed=speed))
+        return clean
+
+    async def send_text(self, text: str, style: str | None = None,
+                        speed: int | None = None, frame: bool = False) -> str:
+        """Send and await completion (used by tests / synchronous callers)."""
+        await self._cancel_task()
+        self._clear_driver_flags()
+        self._takeovers += 1
+        self._remember(None)                       # as send_text_bg — a manual takeover
+        clean = self._normalize(text, frame=frame)
+        await self._run_manual(clean, style=style, speed=speed)
+        return clean
+
+    @property
+    def caps(self) -> device.Capabilities:
+        """What THIS wall can show. A property of the gateway on the other end, so with
+        several displays the answer differs per wall.
+
+        Simulation mode's no-op transport carries no caps, but we keep the ones the real wall last
+        reported — so a Matrix/canvas app can be *simulated* exactly as it would run for real,
+        instead of looking uninstalled on a wall that suddenly claims no framebuffer."""
+        if self.config.sim_mode and self._real_caps is not None:
+            return self._real_caps
+        c = getattr(self.transport, "caps", device.SPLIT_FLAP)
+        if not self.config.sim_mode:
+            self._real_caps = c
+        return c
+
+    def _forced_uppercase(self) -> bool:
+        """Has the user asked this wall to shout, even though it need not?"""
+        plugins = self.plugins
+        if plugins is None:              # nothing attached yet — nobody to ask
+            return False
+        try:
+            v = plugins.settings.get("force_uppercase", "no")
+        except Exception:
+            return False
+        return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+    @property
+    def shows_lowercase(self) -> bool:
+        """Whether this wall will actually SHOW lowercase.
+
+        Two different questions, and keeping them apart is the point:
+
+          caps.lowercase   — what the wall CAN do. A property of the hardware.
+          shows_lowercase  — what it WILL do. The hardware, AND the user's preference.
+
+        Only the second one decides the fold. The first still decides the WIRE protocol: a
+        Matrix Gateway asked to shout is still driven by the index-addressed API, and still
+        shows its pictographs and named colors. It is just in capitals.
+        """
+        return self.caps.lowercase and not self._forced_uppercase()
+
+    @property
+    def rich(self) -> bool:
+        """What the UI and the API mean by "rich": what the wall will actually show."""
+        return self.shows_lowercase
+
+    def _normalize(self, text: str, *, frame: bool = False) -> str:
+        """A page, ready for the wire.
+
+        `frame` is the ONE question the caller has to answer: is a lowercase letter in this
+        text a COLOR (an animation, a raw color grid) or a LETTER (words)? One flag, not
+        two: a `raw`/`keep_case` pair is the same axis inverted, and its fourth
+        combination silently destroys an animation's colors.
+
+        Folding is not the caller's business. A wall with no lowercase flaps gets uppercase;
+        a Matrix Gateway does not. That decision belongs to the wall, it is made here, once,
+        and it is made LAST — after the colors are explicit, so folding can never eat one.
+
+        Then DEGRADE, which is later still, and has to be: it asks "can this wall show this
+        exact character", and until the case is settled that question has no answer. A reel
+        with `É` on it and no `é` would reject the lowercase form and accept the uppercase,
+        and asking before the fold would degrade a letter that was about to become showable.
+        """
+        clean = renderer.normalize(text, self.config.module_count(), frame=frame)
+        if not self.shows_lowercase:
+            clean = renderer.fold(clean)
+        # What the wall cannot show becomes the nearest thing it can, rather than a homed
+        # module and a hole in the middle of a word. A gateway that has not told us its
+        # charset is left exactly as it was.
+        return renderer.degrade(clean, self.caps)
+
+    async def _run_manual(self, clean: str, *, style: str | None, speed: int | None) -> None:
+        disp = self.config.display
+        style = style or disp.get("transition_style", "ltr")
+        if speed is None:
+            speed = disp.get("slot_speed", 80) if style == "slot" else disp.get("transition_speed", 15)
+        await self._emit_page(clean, style=style, speed=int(speed))
+
+    async def _emit_page(self, clean: str, *, style: str, speed: int,
+                         unless=None, record_as: str | None = None) -> bool | None:
+        """Render ``clean`` to frames and push them over the transport.
+
+        Returns True when the page reached the wall, False when the send failed (the
+        wall's contents are then unknown), None when ``unless`` said to stand down
+        before anything was sent. ``unless`` is re-checked UNDER the send lock: it
+        closes the gap between a driver loop's interrupt check and its send, so an
+        interrupt that began in between is never painted over by a stale app page.
+
+        Every paint invalidates the app loops' unchanged-page record (whatever was on
+        the wall is about to stop being there); ``record_as`` re-validates it — set by
+        the page cycle, under the same lock, only when the send succeeded.
+        """
+        grid = self.config.grid
+        base = int(grid.get("module_id_base", 0))
+        rows, cols = int(grid["rows"]), int(grid["cols"])
+        speed = int(speed)
+        if style == "slot" and speed <= 0:
+            speed = 80   # _plan_slot spins at its own 80 ms default; keep step_ms honest
+        plan = renderer.build_send_plan(
+            clean, style=style, speed_ms=speed, rows=rows, cols=cols,
+        )
+        await self._yield_to_settings_transfer()
+        async with self._send_lock:
+            if unless is not None and unless():
+                return None
+            # About to paint flaps. If a canvas app still holds the panel (a path that did not go
+            # through _cancel_task, e.g. a background send_text_bg), this page auto-stops its
+            # canvas mode on the firmware — so just drop the bypassed shown-cell cache and let it
+            # repaint whole. No eager POST /api/canvas {active:false}, which would flash the wall's
+            # stale pre-canvas flaps in the gap before this page lands.
+            if self._canvas_active:
+                self._canvas_active = False
+                try:
+                    self.transport.forget()
+                except Exception:
+                    pass
+            self.state.set_target(clean)
+            self._app_last_sent = None
+            ok = True
+            try:
+                # Batch path (REST): draw the whole page in one request per uniformly
+                # paced run of steps; the gateway (3.0+) paces the cascade. Sim sends
+                # per frame.
+                if getattr(self.transport, "batch_capable", False):
+                    await self._send_plan_batched(plan, base, speed)
+                else:
+                    for step in plan:
+                        for grid_index, char in step.frames:
+                            await self.transport.send_frame(base + grid_index, renderer.for_legacy(char))
+                            self.state.set_module(grid_index, char)
+                        if step.delay_after > 0:
+                            await asyncio.sleep(step.delay_after)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                ok = False
+                self.state.last_error = str(e)
+                log.warning("send failed: %s", e)
+            finally:
+                self._sync_transport_state()
+            if ok and record_as is not None:
+                self._app_last_sent = record_as
+            return ok
+
+    async def _send_plan_batched(self, plan, base: int, speed: int) -> None:
+        """One request per run of uniformly paced steps. ``step_ms`` paces the frames
+        device-side, so a step whose ``delay_after`` IS that pace folds into the run;
+        a step that holds for anything else (the slot style's 1.5 s spin-hold) ends
+        the run: flush, hold, continue. Ordered styles collapse to exactly one
+        request, and the slot spin and its hold survive — ``dict()``-flattening
+        the plan would discard both."""
+        step_delay = max(0, speed) / 1000.0
+        pending: list[tuple[int, str, int]] = []      # (module_id, char, grid_index)
+
+        async def flush() -> None:
+            if not pending:
+                return
+            await self.transport.send_batch([(m, c) for m, c, _ in pending], speed)
+            for _, char, gi in pending:
+                self.state.set_module(gi, char)
+            pending.clear()
+
+        for step in plan:
+            pending.extend((base + gi, ch, gi) for gi, ch in step.frames)
+            if abs(step.delay_after - step_delay) > 1e-9:
+                await flush()
+                if step.delay_after > 0:
+                    await asyncio.sleep(step.delay_after)
+        await flush()
+
+    async def _yield_to_settings_transfer(self) -> None:
+        """Silently yield to a settings upload/download so we don't flood the gateway
+        with frame traffic while it's busy storing/serving the settings blob. Only
+        THIS display's gateway matters — another wall's transfer is none of our
+        business. The transfer is small and quick; the wait is capped so a stuck
+        transfer never wedges the display."""
+        url = (self.config.transport.get("gateway_url") or "").strip()
+        if not url or not gateway.settings_active(url):
+            return
+        waited = await asyncio.get_running_loop().run_in_executor(
+            None, gateway.wait_settings_idle, url, 5.0)
+        log.debug("held display send %.2fs for an in-flight settings transfer", waited)
+
+    async def clear(self) -> str:
+        """Blank the whole display."""
+        return await self.send_text(" " * self.config.module_count(), style="ltr")
+
+    async def home_all(self) -> bool:
+        """Physically home every module and blank the preview.
+
+        Stops any running app/playlist first — homing is a manual takeover of the
+        wall, like compose/clear — then broadcasts a Home to the gateway, which
+        returns every module to flap 0 (the blank home flap). In simulation mode
+        nothing is sent to the gateway, but the preview is still blanked so the
+        effect is visible. Returns whether the gateway accepted the command (True
+        in sim). Raises if no gateway is configured or the gateway call fails.
+        """
+        await self._cancel_task()
+        self._clear_driver_flags()
+        self._takeovers += 1          # a manual takeover, like compose/clear
+        ok = True
+        async with self._send_lock:   # serialize with any in-flight/interrupt send
+            if not self.config.sim_mode:
+                url = (self.config.transport.get("gateway_url") or "").strip()
+                if not url:
+                    raise RuntimeError("no gateway_url configured")
+                ok = await gateway.home_all(url)
+            self.state.blank()
+        self._sync_transport_state()
+        return ok
+
+    # -- app play-loop ------------------------------------------------------
+    async def run_app(self, app_id: str) -> None:
+        """Start continuously running an app on whichever surface fits this wall. On a Matrix panel a
+        matrix app (or a dual-surface app with its panel toggle on) draws straight to the panel; a
+        channel draws its text + icon there; otherwise the app runs as flap pages."""
+        if self.plugins is None or self.plugins.manifest(app_id) is None:
+            raise KeyError(app_id)
+        surface = self._surface_for(app_id)
+        if surface is None:
+            # A matrix-only app on a wall with no framebuffer has nothing to draw on.
+            raise NeedsCanvasError(f"{app_id} needs a Matrix panel this wall does not have")
+        await self._cancel_task()
+        self._clear_driver_flags()
+        self.active_app = app_id
+        self.state.active_app = app_id
+        self._remember({"kind": "app", "app": app_id})
+        log.info("app %r now running (%s surface) on %s", app_id, surface,
+                 str(self.config.transport.get("gateway_url") or "sim"))
+        matrix_channel = surface == "matrix" and self.plugins.is_channel_app(app_id)
+        loop = (self._channel_canvas_loop if matrix_channel
+                else self._matrix_loop if surface == "matrix"
+                else self._app_loop)
+        self._task = asyncio.create_task(loop(app_id))
+
+    # -- zones: several apps side by side on one panel -----------------------
+    def validate_zones(self, zones: list) -> list[dict]:
+        """Normalize a zones spec (2-3 entries of {app, width?, overrides?}) or raise
+        ValueError with a human reason. Interactive apps are excluded — a zone has no
+        pad — and every app must render offscreen (any matrix-capable app does)."""
+        caps = self._caps()
+        if not getattr(caps, "has_canvas", False):
+            raise NeedsCanvasError("zones need a Matrix panel this wall does not have")
+        if not isinstance(zones, list) or not 2 <= len(zones) <= 3:
+            raise ValueError("zones takes 2 or 3 entries")
+        out = []
+        for z in zones:
+            app_id = app_id_from_ref((z or {}).get("app", ""))
+            m = self.plugins.manifest(app_id) if self.plugins else None
+            if not app_id or m is None:
+                raise ValueError(f"unknown app in zones: {app_id or '(empty)'}")
+            if m.get("interactive"):
+                raise ValueError(f"{app_id} is interactive — it needs the whole panel and the pad")
+            ok_off = getattr(self.plugins, "renders_offscreen", None)
+            if callable(ok_off) and not ok_off(app_id):
+                raise ValueError(f"{app_id} renders on the gateway itself (an effect / "
+                                 "device animation) — it can't share the panel as a zone")
+            try:
+                w = float(z.get("width") or 0)
+            except (TypeError, ValueError):
+                w = 0.0
+            out.append({"app": app_id, "width": w if w > 0 else 1.0,
+                        "overrides": z.get("overrides") or None})
+        return out
+
+    async def run_zones(self, zones: list, name: str = "") -> None:
+        """Run 2-3 apps side by side as vertical strips of the panel — the zones
+        driver, exclusive with apps/playlists like every driver."""
+        spec = self.validate_zones(zones)
+        await self._cancel_task()
+        self._clear_driver_flags()
+        label = name or " + ".join(z["app"] for z in spec)
+        self.active_app = f"zones:{label}"
+        self.state.active_app = self.active_app
+        self.state.current_app = None
+        self._remember({"kind": "zones", "zones": spec, "name": name})
+        self._task = asyncio.create_task(self._zones_forever(spec))
+
+    async def _zones_forever(self, spec: list[dict]) -> None:
+        want = self.active_app
+        try:
+            while self.active_app == want:
+                await self._zones_pass(spec, lambda: self.active_app == want)
+        finally:
+            await self._release_canvas()
+
+    async def _play_zones_entry(self, entry: dict, duration: float, want, rt_loop) -> None:
+        """One playlist ZONES entry until its slot's deadline (skip-aware). The entry
+        carries its zones inline, or references a SAVED layout by name — a reference,
+        so editing the layout later changes every playlist that uses it."""
+        zones = entry.get("zones") or []
+        if not zones and entry.get("layout"):
+            saved = {}
+            try:
+                saved = (self.plugins.settings.get("saved_zone_layouts") or {})
+            except Exception:
+                pass
+            zones = (saved.get(str(entry["layout"])) or {}).get("zones") or []
+        try:
+            spec = self.validate_zones(zones)
+        except (ValueError, NeedsCanvasError) as e:
+            log.warning("playlist zones entry skipped: %s", e)
+            await self._entry_sleep(min(duration, 5.0))
+            return
+        self.state.current_app = None
+        deadline = rt_loop.time() + duration
+        await self._zones_pass(
+            spec, lambda: (rt_loop.time() < deadline and self.active_playlist == want
+                           and not self._skip_evt.is_set()))
+        await self._release_canvas()
+
+    async def _zones_pass(self, spec: list[dict], keep_going) -> None:
+        """The zones render loop: each zone's app draws into its own offscreen
+        ZoneCanvas on its own hold cadence; any zone's fresh frame recomposites the
+        panel image, pushed as ONE frame. Runs until ``keep_going()`` says stop."""
+        from .zonecanvas import ZoneCanvas
+
+        caps = self._caps()
+        url = await self._take_panel()
+        W, H = int(caps.canvas_w or 0), int(caps.canvas_h or 0)
+        upscale = None
+        if getattr(caps, "is_lcd", False):
+            # zones lay out on the LOGICAL panel (LED-era app sizes come out right)
+            # and the composite upscales once at push
+            lw, lh, _k = device.lcd_logical(caps)
+            upscale, (W, H) = (int(caps.canvas_w), int(caps.canvas_h)), (lw, lh)
+        if not W or not H:
+            await self._entry_sleep(2.0)
+            return
+        n = len(spec)
+        gap = 1                                            # dark divider column
+        total_w = sum(z["width"] for z in spec)
+        xs, x = [], 0
+        for i, z in enumerate(spec):
+            w = int(round(W * z["width"] / total_w)) - (gap if i < n - 1 else 0)
+            if i == n - 1:
+                w = W - x                                  # the last zone takes the remainder
+            xs.append((x, max(8, w)))
+            x += w + gap
+        surfaces = [ZoneCanvas(w, H) for _, w in xs]
+        panel = canvas.CanvasSurface(url, caps)            # the real wall: one frame out
+        rt_loop = asyncio.get_running_loop()
+        due = [0.0] * n
+        images = [None] * n
+        while keep_going():
+            changed = False
+            now = rt_loop.time()
+            for i, z in enumerate(spec):
+                if now < due[i]:
+                    continue
+                try:
+                    hold = await asyncio.to_thread(
+                        self.plugins.render_matrix_on, z["app"], surfaces[i], z["overrides"])
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    log.warning("zone %s draw error: %s", z["app"], e)
+                    hold = None
+                img = surfaces[i].take()
+                if img is not None:
+                    images[i] = img
+                    changed = True
+                due[i] = now + max(0.5, float(hold) if hold else 5.0)
+            if changed and any(im is not None for im in images):
+                from PIL import Image, ImageDraw
+                composite = Image.new("RGB", (W, H), (0, 0, 0))
+                for (x0, w), im in zip(xs, images):
+                    if im is not None:
+                        composite.paste(im.resize((w, H)) if im.size != (w, H) else im, (x0, 0))
+                dr = ImageDraw.Draw(composite)
+                for x0, w in xs[:-1]:                      # the reserved gap columns
+                    dr.line([(x0 + w, 0), (x0 + w, H - 1)], fill=_ZONE_DIVIDER)
+                if upscale:
+                    composite = composite.resize(upscale, Image.NEAREST)
+                await asyncio.to_thread(panel.frame, composite)
+            nxt = min(due) - rt_loop.time()
+            await self._entry_sleep(max(0.1, min(nxt, 1.0)))
+
+    def _surface_for(self, app_id: str, overrides=None) -> str | None:
+        """Which surface this app renders on RIGHT NOW: ``"matrix"`` when the wall has a panel and
+        the app draws there (matrix-only, or dual-surface with its toggle on); else ``"flap"`` when
+        it has a flap view; else ``None`` — a matrix-only app on a wall with no panel, which can't
+        run. This one call is the single surface decision for run_app and the playlist loop.
+
+        Tolerant of a minimal plugins object (a test stub or bare harness) without the
+        surfaces API: with no ``matrix_on``/``renders_on`` it is treated as a plain flap app."""
+        p = self.plugins
+        matrix_on = getattr(p, "matrix_on", None)
+        if self._caps().has_canvas and matrix_on:
+            ov = getattr(p, "overlay", None)                 # entry overrides steer the toggle too
+            if matrix_on(app_id, ov(overrides) if (ov and overrides) else None):
+                return "matrix"
+        renders_on = getattr(p, "renders_on", None)
+        if renders_on is None or renders_on(app_id, "flap"):
+            return "flap"
+        return None
+
+    def _caps(self):
+        """The PLUGINS' capability view — deliberately not ``self.caps``. Surface routing
+        must agree with the caps that gated the app's settings (the matrix toggle only
+        exists where plugins saw a canvas), and that view is what tests and simulation pin
+        via ``attach_caps``. In production display.py wires it back to this controller's
+        own caps, so the two views coincide there."""
+        prov = getattr(self.plugins, "_caps", None)
+        return prov() if callable(prov) else device.SPLIT_FLAP
+
+    def has_canvas_preview(self) -> bool:
+        """True when the live preview / HA image should show the LED panel instead of the
+        (bypassed, stale) flap grid: a canvas app is drawing here and either its last frame is
+        cached OR the wall can be read back. Readback is what covers an on-device
+        effect, ticker or animation — content the companion never rendered a frame for."""
+        if not self._canvas_active:
+            return False
+        url = str(self.config.transport.get("gateway_url") or "").strip()
+        return canvas.has_frame(url) or self.caps.canvas_readback
+
+    def canvas_preview_png(self, scale: int = 1):
+        """PNG of what this display's panel is showing, or None. The cached frame when a frame-push
+        app drew one (no gateway round-trip); otherwise the panel read back, so an on-device effect
+        or ticker previews too. May make a network call — call it off the event loop."""
+        if not self._canvas_active:
+            return None
+        url = str(self.config.transport.get("gateway_url") or "").strip()
+        png = canvas.last_frame_png(url, scale=scale)          # a frame-push app -> no gateway call
+        if png is None and url and self.caps.canvas_readback:
+            # An on-device effect/ticker/anim is read back from the panel: rgb565 where the wall
+            # takes it (a third less over WiFi), cached ~1s so the preview poll stays cheap.
+            fmt = "rgb565" if "rgb565" in self.caps.canvas_formats else "rgb888"
+            # A big panel's FULL readback is ~2 MB and pins the gateway's single HTTP worker for
+            # ~2 s — long enough that the liveness poll behind it times out and the wall reads
+            # "offline." Ask the wall to downscale to ≈320 px wide (a fast on-device copy); small
+            # panels resolve to N=1 (unchanged), and a gateway that ignores scale just returns full.
+            down = max(1, min(16, round(int(getattr(self.caps, "canvas_w", 0) or 0) / 320)))
+            png = canvas.readback_png(url, scale=scale, fmt=fmt, down=down)
+        return png
+
+    async def _take_panel(self, claim: bool = True) -> str:
+        """Ready the Matrix panel for a panel-rendering loop and return the gateway url — the
+        opening move every such loop shares.
+
+        ``claim`` True (a frame-push / ops app): ``stand_down`` — stop any device-side renderer the
+        previous app left running (effect, looping anim, ticker) WITHOUT claiming the panel. The
+        app's first push claims it on the firmware side (``canvasEnter(false)``: park the reel
+        renderer, keep the pixels), so the old ``take_over`` here bought only its side effects: the
+        firmware clears-and-presents on that claim, which blanked the panel a second early (a black
+        hole between apps until the first frame landed) and added one more full-panel present to the
+        switch — on the LCD every present is a visible blink, so a switch read as a burst of them.
+        Now an app→app switch is a clean cut: the old frame holds until the new one paints, exactly
+        like the wall's own UI. ``forget_frame`` guarantees that first push is a FULL frame — never
+        deltas against a base the panel may no longer be showing (canvas → flap page → canvas).
+
+        ``claim`` False (a DEVICE-side renderer: an effect, on-device anim or ticker): do NOT take
+        the panel over. The renderer claims the panel with its OWN POST, so grabbing raw-canvas mode
+        first is the wrong model — hand the panel back to the wall instead (``release`` = the
+        firmware's ``dispReturnToWall``), which stands down any prior device renderer and readies the
+        panel for the next effect, exactly what the wall's own UI does before it starts one. (An
+        earlier LCD firmware also REQUIRED this: a pre-emptive take_over parked the panel and would
+        not un-park for the effect — since fixed, but release remains the correct path.)"""
+        url = str(self.config.transport.get("gateway_url") or "").strip()
+        if url:
+            # Drop any draw stream a PREVIOUS app left open before this one claims the panel.
+            # While a stream is open the drawing REST endpoints answer 409, so an un-torn-down
+            # stream — a streaming ops app switched away by a path that skipped the release —
+            # would freeze the wall on its last frame and block every push here.
+            # stream_end is a no-op when none is open, and this app opens its own later if it
+            # earns one (see _maybe_stream). The universal choke point, so no switch path leaks.
+            await asyncio.to_thread(canvas.stream_end, url)
+            if claim:
+                if not self._canvas_active:
+                    await asyncio.to_thread(canvas.stand_down, url)
+                    canvas.forget_frame(url)          # first push must be a full, not deltas
+            else:
+                # A device renderer POSTs its own claim next (gCanvasMode stays false), so taking the
+                # panel over is the wrong model — hand it back to the wall: release stands down any
+                # prior device renderer and readies the panel for the effect, matching the wall's own
+                # UI. _canvas_active still marks the panel as claimed by a canvas/device app, so the
+                # switch-away teardown (stream close + flap-cache forget) is unchanged.
+                await asyncio.to_thread(canvas.release, url)
+            self._canvas_active = True
+        return url
+
+    async def _run_matrix(self, app_id: str, keep_going, *, overrides=None, deadline=None) -> None:
+        """The ONE matrix-app body — take the panel over, then re-run ``fetch_canvas`` on a timer
+        while ``keep_going()``. Shared by the standalone loop and a playlist entry (which passes its
+        ``deadline`` so a long hold never sleeps past its slot) — the same single-body pattern as
+        ``_play_app_pages``, so a fix never has to land twice.
+
+        The app draws through the ``canvas`` surface; its return value, if a number, is the seconds
+        to hold before the next redraw — an effect sets once and holds, a clock redraws each tick. A
+        low floor lets an animating app pick its own frame rate (a fast frame-push app
+        runs over the draw stream, ~28 fps vs the ~8 fps HTTP ceiling)."""
+        # A device-side renderer (effect / on-device anim / ticker) claims the panel with its own
+        # POST — do NOT take the panel over first; hand it back to the wall so the renderer starts
+        # cleanly, exactly as the wall's own UI does before an effect. See _take_panel.
+        device_render = bool((self.plugins.manifest(app_id) or {}).get("device_render"))
+        url = await self._take_panel(claim=not device_render)
+        caps = self._caps()
+        # Adopt the draw stream UP FRONT for a frame-push / ops app, so its FIRST frame already
+        # rides the stream (serviced on the gateway's second core) instead of a one-shot ~2 MB
+        # PUT that pins the single control worker and makes the wall read "offline" for seconds
+        # after a switch — weather's warm-up was the worst case. Gated to walls that take BINARY
+        # ops (there an app's ops ride the stream's 0x06 record, so nothing falls to the HTTP ops
+        # path an open stream 409s) and to offscreen-render apps (an on-device effect pushes
+        # nothing per frame and must not hold a stream; an atlas upload closes/reopens the stream
+        # on its own). A stream dropped mid-run is re-adopted by _maybe_stream on the next tick.
+        if (url and getattr(caps, "canvas_stream", False) and getattr(caps, "canvas_ops_bin", False)
+                and self.plugins.renders_offscreen(app_id)):
+            await asyncio.to_thread(canvas.stream_begin, url)
+        if (self.plugins.manifest(app_id) or {}).get("interactive"):
+            gameinput.reset(url)                        # fresh pad — no stale steering/presses
+                                                       # left over from a prior game on this wall
+        rt_loop = asyncio.get_running_loop()
+        while keep_going():
+            try:
+                hold = await asyncio.to_thread(self.plugins.render_matrix, app_id, overrides)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.warning("canvas app %s draw error: %s", app_id, e)
+                hold = None
+            await self._maybe_stream(url, caps, app_id, hold)
+            delay = float((hold if hold else
+                           self.plugins.loop_delay(app_id, self.plugins.overlay(overrides))) or 5)
+            if deadline is not None:
+                remaining = deadline - rt_loop.time()
+                if remaining <= 0:
+                    break
+                delay = min(delay, remaining)
+            await self._entry_sleep(max(0.05, delay))
+
+    async def _matrix_loop(self, app_id: str) -> None:
+        """Standalone matrix app: the shared body until the app is switched away, then ALWAYS close
+        any draw stream (switch / stop / cancel). A playlist entry gets the same close from
+        ``_release_canvas`` after its slot."""
+        self.state.current_app = app_id
+        try:
+            await self._run_matrix(app_id, lambda: self.active_app == app_id)
+        finally:
+            url = str(self.config.transport.get("gateway_url") or "").strip()
+            if url:
+                canvas.stream_end(url)
+
+    async def _maybe_stream(self, url: str, caps, app_id: str, hold) -> None:
+        """Adopt the draw stream for a FAST app once we've seen it draw: a wall that
+        advertises canvas.stream, a short hold (so it never trips the stream's 30 s idle
+        timeout), and a push kind the stream carries whole — a frame, or a BINARY ops
+        batch (record 0x06; a game like Chomper — atlas binds ride the stream's
+        own 0x04 record, so a sprite app qualifies too). Apps whose
+        batches only JSON can carry stay on the per-batch HTTP path; a mid-stream atlas
+        re-upload closes the stream itself (see canvas.put_atlas_named) and we simply
+        re-adopt here on the next tick.
+
+        The stream is the ONLY fast path on the LCD: measured on the 1280×800 wall, an HTTP
+        request costs ~1-2.4 s (a ~1 s base latency + slow throughput), while the persistent
+        stream runs at ~1 ms/frame. So a frame-push app MUST stream there too — pushing its
+        fulls over HTTP as QOI (the earlier big-panel gate) turned clocks/weather into ~2.4 s
+        per frame. The stream's 2 MB raw keyframe is handled at the source instead: it is no
+        longer sent periodically over a stream (see canvas._try_delta) — TCP continuity means
+        no drift to heal, so only deltas flow after the first full."""
+        if not (url and getattr(caps, "canvas_stream", False) and not canvas.has_stream(url)
+                and isinstance(hold, (int, float)) and hold <= _CANVAS_STREAM_MAX_HOLD):
+            return
+        if canvas.last_push_was_opsb(url) or canvas.last_push_was_frame(url):
+            await asyncio.to_thread(canvas.stream_begin, url)
+
+    async def _run_channel_canvas(self, app_id: str, keep_going, *, overrides=None,
+                                  deadline=None) -> None:
+        """The ONE channel-on-panel body — take the framebuffer over and cycle the channel's lines
+        as frames, each drawn big with its themed icon, while ``keep_going()``. Shared by the
+        standalone loop and a playlist entry (same single-body pattern as ``_play_app_pages``).
+        The dwell is the channel's loop_delay; each fresh pass re-shuffles a random-order channel.
+        If the wall turns out to have no framebuffer, falls back to the flap pages."""
+        await self._take_panel()
+        surface = self.plugins.build_canvas_surface(native=True)
+        if surface is None:                                    # no framebuffer after all -> flaps
+            self._app_last_sent = None                         # fresh run: don't suppress page 1
+            while keep_going():
+                await self._play_app_pages(app_id, overrides, keep_going)
+            return
+        motif = self.plugins.channel_canvas_motif(app_id)
+        rt_loop = asyncio.get_running_loop()
+        while keep_going():
+            try:
+                items = await asyncio.to_thread(self.plugins.channel_canvas_items, app_id, overrides)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.warning("channel %s canvas items error: %s", app_id, e)
+                items = []
+            if not items:
+                await asyncio.sleep(1)
+                continue
+            # A screen too long to stay readable on this panel becomes several screens,
+            # never smaller type — the renderer's floor is the readable minimum.
+            items = [pg for t in items for pg in channel_art.fit_pages(surface, t, motif)]
+            delay = max(0.5, float(
+                self.plugins.loop_delay(app_id, self.plugins.overlay(overrides)) or 8))
+            for text in items:
+                if not keep_going():
+                    return
+                try:
+                    await asyncio.to_thread(channel_art.render, surface, text, motif)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    log.warning("channel %s canvas render error: %s", app_id, e)
+                await self._entry_sleep(delay if deadline is None
+                                        else min(delay, max(0.0, deadline - rt_loop.time())))
+
+    async def _channel_canvas_loop(self, app_id: str) -> None:
+        """Standalone channel-on-panel: the shared body until the app is switched away."""
+        self.state.current_app = app_id
+        await self._run_channel_canvas(app_id, lambda: self.active_app == app_id)
+
+    async def _play_channel_canvas_entry(self, app_id: str, deadline: float, want, overrides=None) -> None:
+        """One playlist entry for a channel rendered on the panel — the shared body until the slot's
+        deadline. The caller releases the panel afterwards."""
+        rt_loop = asyncio.get_running_loop()
+        await self._run_channel_canvas(
+            app_id, lambda: (rt_loop.time() < deadline and self.active_playlist == want
+                             and not self._skip_evt.is_set()),
+            overrides=overrides, deadline=deadline)
+
+    async def _play_matrix_entry(self, app_id: str, deadline: float, want, overrides=None) -> None:
+        """One playlist entry for a matrix app — the shared body until the slot's ``deadline`` (a
+        long hold is capped at the time left, so an effect never sleeps past its turn). The caller
+        releases the panel — and with it any draw stream — after the slot."""
+        rt_loop = asyncio.get_running_loop()
+        await self._run_matrix(
+            app_id, lambda: (rt_loop.time() < deadline and self.active_playlist == want
+                             and not self._skip_evt.is_set()),
+            overrides=overrides, deadline=deadline)
+
+    async def stop_app(self) -> None:
+        """Stop whatever is running — and BLANK the wall.
+
+        A display with nothing running should show nothing. Leaving the last page an app
+        happened to draw is worse than blank: it is a lie that goes stale, and the longer it
+        sits there the more it looks like the thing is still working.
+
+        Blanking IS homing here: flap 0 is the blank flap, so driving every module to a space
+        returns it home. (The Home button is a separate, physical re-home; this is the
+        ordinary "nothing is on" state.)
+
+        Only an EXPLICIT stop comes through here — starting another app cancels the loop
+        directly (run_app), so switching apps does not flash a blank wall in between.
+        """
+        # network_release: a stop leaves the wall idle with nothing following, so the panel's
+        # framebuffer must be cleared here (see _release_canvas) — not left holding the stopped
+        # canvas app's last frame while clear() only blanks the flap model.
+        await self._cancel_task(network_release=True)
+        self._clear_driver_flags()
+        self._remember(None)
+        await self.clear()
+
+    async def _app_loop(self, app_id: str) -> None:
+        # A standalone app is the app on screen the whole time it runs.
+        self.state.current_app = app_id
+        self._app_last_sent = None
+        while self.active_app == app_id:
+            await self._play_app_pages(app_id, None,
+                                       lambda: self.active_app == app_id)
+
+    async def _play_app_pages(self, app_id: str, ov: dict | None, keep_going) -> None:
+        """ONE fetch → page-cycle pass of an app: the loop body shared by _app_loop and
+        a playlist's app entries, so suppression behaves identically in both.
+
+        Suppression: a non-anim app skips re-sending an unchanged page — but only
+        while ``_app_last_sent`` is valid, i.e. the wall really still shows it. Every
+        paint through _emit_page (an interrupt's text, a failed send) invalidates it,
+        and only a send that reached the wall re-validates it (``record_as``), so the
+        driver repaints the moment an interrupt is over instead of leaving its text
+        up indefinitely.
+        """
+        rt_loop = asyncio.get_running_loop()
+        try:
+            pages = await rt_loop.run_in_executor(None, self.plugins.get_pages, app_id, ov)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.warning("app %s get_pages error: %s", app_id, e)
+            pages = []
+        if not pages:
+            await asyncio.sleep(1)
+            return
+        t = self.plugins.page_timing(app_id, ov)
+        for idx, page in enumerate(pages):
+            if not keep_going():
+                return
+            text = page if isinstance(page, str) else str(page.get("text", ""))
+            # PER-PAGE dwell: an app with multiple predefined screens can say how long to hold
+            # each one by returning a page dict with its own ``seconds`` (e.g. the Dashboard's
+            # Time vs Weather screens). Absent/invalid falls back to the app's uniform loop_delay,
+            # so every existing app is unchanged. Clamped to a sane floor/ceiling.
+            dwell = float(t["loop_delay"])
+            if isinstance(page, dict) and page.get("seconds") is not None:
+                try:
+                    dwell = max(0.5, min(3600.0, float(page["seconds"])))
+                except (TypeError, ValueError):
+                    pass
+            # Re-emit even an UNCHANGED page every _PAGE_HEARTBEAT_S: it gives the transport a send
+            # to repaint through (its cell-diff drops to a whole page on the same clock), so a flap
+            # that drifted while the page held is re-asserted instead of lingering until the text
+            # next changes. On a drawn wall the repaint is invisible — an unchanged flap no-ops.
+            heartbeat = (rt_loop.time() - self._last_page_emit) >= _PAGE_HEARTBEAT_S
+            if t["is_anim"] or text != self._app_last_sent or heartbeat:
+                clean = self._normalize(text, frame=t["is_anim"])
+                await self._emit_page_from_loop(clean, style=t["style"], speed=t["speed"],
+                                                record_as=text)
+                self._last_page_emit = rt_loop.time()
+            await self._hold_page(app_id, ov, idx, dwell, t, keep_going)
+
+    async def _hold_page(self, app_id: str, ov: dict | None, idx: int, dwell: float,
+                         t: dict, keep_going) -> None:
+        """Hold the current page for ``dwell`` seconds. For a clock app (manifest
+        ``refresh_align: "minute"``), wake at each wall-clock minute boundary within that dwell,
+        re-render, and re-emit THIS page — so a Time screen held for a long dwell still ticks over
+        and the displayed time is always current. Every other app just sleeps the dwell.
+
+        Minute rollovers happen at Unix ``time() % 60 == 0`` in every timezone (offsets are whole
+        minutes), so that is the boundary to wake on. The re-emit rides the same unchanged-page
+        suppression as the main loop: the Time page's text changed, so it repaints; a neighbour
+        page (e.g. Weather) is identical on re-fetch and is skipped."""
+        rt_loop = asyncio.get_running_loop()
+        dwell = max(0.0, dwell)
+        _mf = getattr(self.plugins, "manifest", None)
+        manifest = _mf(app_id) if callable(_mf) else None
+        aligned = bool(manifest) and manifest.get("refresh_align") == "minute"
+        if not aligned or dwell <= 0.05:
+            await self._entry_sleep(dwell)
+            return
+        end = time.monotonic() + dwell
+        while keep_going():
+            remaining = end - time.monotonic()
+            if remaining <= 0.05:
+                return
+            to_minute = 60.0 - (time.time() % 60.0) + 0.05      # just past the next rollover
+            await self._entry_sleep(min(remaining, to_minute))
+            if not keep_going() or (end - time.monotonic()) <= 0.05:
+                return                                          # dwell ended, not a rollover
+            try:
+                pages = await rt_loop.run_in_executor(None, self.plugins.get_pages, app_id, ov)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                pages = None
+            if pages and idx < len(pages):
+                pg = pages[idx]
+                text = pg if isinstance(pg, str) else str(pg.get("text", ""))
+                if t["is_anim"] or text != self._app_last_sent:
+                    clean = self._normalize(text, frame=t["is_anim"])
+                    await self._emit_page_from_loop(clean, style=t["style"], speed=t["speed"],
+                                                    record_as=text)
+                    self._last_page_emit = rt_loop.time()
+
+    async def _emit_page_from_loop(self, clean: str, *, style: str, speed: int,
+                                   record_as: str | None = None) -> bool:
+        """Emit on behalf of a driver loop — never over a live interrupt.
+
+        A bare park-then-send is check-then-act: an interrupt that begins between
+        ``_wait_if_interrupted`` and the send would be painted over by a stale app
+        page. So _emit_page re-checks under the send lock and stands down (None); we
+        park again and retry."""
+        while True:
+            await self._wait_if_interrupted()
+            sent = await self._emit_page(clean, style=style, speed=speed,
+                                         unless=lambda: self._interrupting,
+                                         record_as=record_as)
+            if sent is not None:
+                return sent
+
+    # -- app-playlist loop --------------------------------------------------
+    async def run_playlist(self, entries: list[dict], loop: bool = True,
+                           name: str | None = None) -> None:
+        """Cycle a list of playlist entries (apps and/or composed messages)."""
+        await self._cancel_task()
+        self._clear_driver_flags()
+        self.active_playlist = name or "(unsaved)"
+        self.state.active_playlist = self.active_playlist
+        # The rotation, as one label per entry (an app id, or "(message)" for a composed
+        # entry), so a reader can see the whole running order and where it is in it —
+        # which the API could not say before, so a client had to guess from the flaps.
+        self.state.playlist_entries = [_entry_label(e) for e in entries]
+        self.state.playlist_index = None
+        # Keep the entries, not just the name: a playlist can be run unsaved, and that
+        # one has no name to look up on the way back.
+        self._remember({"kind": "playlist", "name": name or "",
+                        "entries": entries, "loop": bool(loop)})
+        self._task = asyncio.create_task(self._playlist_loop(entries, loop))
+
+    async def _run_playlist_app_entry(self, entry: dict, duration: float, want,
+                                      rt_loop) -> None:
+        """One playlist APP entry, on whichever surface it renders here — the same single
+        surface decision run_app makes, driven until the slot's deadline. A panel-rendering
+        entry takes the panel over and HANDS IT BACK before the next entry; without that
+        release, an on-device effect in a playlist stays lit forever (it never goes through
+        _cancel_task, so _canvas_active is never cleared)."""
+        app_id = app_id_from_ref(entry.get("app", ""))
+        if not app_id or self.plugins.manifest(app_id) is None:
+            return
+        self.state.current_app = app_id        # this app is on the flaps now
+        # Per-entry setting overrides (own location/language/config), so the same app
+        # can appear twice with different configuration.
+        ov = entry.get("overrides") or None
+        deadline = rt_loop.time() + duration
+
+        def keep_going() -> bool:
+            return (rt_loop.time() < deadline and self.active_playlist == want
+                    and not self._skip_evt.is_set())
+
+        surface = self._surface_for(app_id, ov)
+        matrix_channel = surface == "matrix" and self.plugins.is_channel_app(app_id)
+        if surface == "matrix" and not matrix_channel:
+            await self._play_matrix_entry(app_id, deadline, want, ov)
+            await self._release_canvas()
+        elif matrix_channel:
+            # A channel rendering on the panel (text + art) — same take-over-then-release
+            # contract as a matrix app so the next flap entry gets a clean wall.
+            await self._play_channel_canvas_entry(app_id, deadline, want, ov)
+            await self._release_canvas()
+        else:
+            while keep_going():
+                await self._play_app_pages(app_id, ov, keep_going)
+
+    async def _playlist_loop(self, entries: list[dict], loop: bool) -> None:
+        rt_loop = asyncio.get_running_loop()
+        want = self.active_playlist
+        while self.active_playlist == want:
+            for i, entry in enumerate(entries):
+                if self.active_playlist != want:
+                    return
+                self.state.playlist_index = i
+                self._skip_evt.clear()                 # each entry gets a fresh skip slate
+                etype = entry.get("type", "app")
+                duration = float(entry.get("duration", entry.get("delay", 30)))
+                if etype == "compose":
+                    self.state.current_app = None      # a composed entry, not an app
+                    clean = self._normalize(entry.get("text", ""))
+                    await self._emit_page_from_loop(clean, style=entry.get("style", "ltr"),
+                                                    speed=int(entry.get("speed", 15)))
+                    await self._entry_sleep(duration)
+                elif etype == "zones":                 # 2-3 apps side by side for the slot
+                    await self._play_zones_entry(entry, duration, want, rt_loop)
+                else:  # app entry — run the app until its slot's deadline
+                    await self._run_playlist_app_entry(entry, duration, want, rt_loop)
+            if not loop:
+                # A playlist that has run out is a display with nothing running, and it
+                # should show nothing — not the last page it happened to stop on.
+                #
+                # NOT clear(): that cancels the current task, and the current task is THIS
+                # one. Emit the blank page directly.
+                self._clear_driver_flags()
+                self._remember(None)
+                await self._emit_page(self._normalize(" " * self.config.module_count()),
+                                      style="ltr",
+                                      speed=int(self.config.display.get("transition_speed", 15)))
+                return
+
+    # -- trigger interrupts --------------------------------------------------
+    @property
+    def _interrupting(self) -> bool:
+        return not self._interrupt_over.is_set()
+
+    async def _wait_if_interrupted(self) -> None:
+        await self._interrupt_over.wait()
+
+    async def _emit_toast(self, text: str, icon: str, accent) -> bool:
+        """Push a drawn toast card (slide-in + hold frame) to the Matrix panel — the
+        canvas-wall face of an interrupt. True when it went out; False on any miss,
+        so the caller falls back to the flap-cell emit."""
+        from . import toast as toastmod
+        text = " ".join(str(text or "").split())   # a grid-laid page collapses to its words
+        caps = self._caps()
+        W, H = int(getattr(caps, "canvas_w", 0) or 0), int(getattr(caps, "canvas_h", 0) or 0)
+        if not W or not H:
+            return False
+        try:
+            frames = await asyncio.to_thread(toastmod.render, W, H, text, icon, accent)
+            url = await self._take_panel()
+            panel = canvas.CanvasSurface(url, caps)
+            for i, img in enumerate(frames):
+                ok = await asyncio.to_thread(panel.frame, img)
+                if not ok and i == len(frames) - 1:
+                    return False
+                if i < len(frames) - 1:
+                    await asyncio.sleep(0.05)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.warning("toast render/push failed (%s); falling back to flap text", e)
+            return False
+        self._app_last_sent = None         # the resuming driver must repaint whole
+        return True
+
+    async def fire_interrupt(self, text: str, seconds: float, *, style: str = "ltr",
+                             frame: bool = False, blank_if_idle: bool = False,
+                             icon: str = "bell", accent=None) -> None:
+        """Briefly show ``text`` over whatever is running, then let it resume.
+
+        `frame` defaults to FALSE — words. A "raw" default ("a lowercase letter is a
+        color flap") would quietly sprinkle COLOR FLAPS through any app page that
+        contains a lowercase r, o, y, g, b, p or w: "Partly cloudy" comes out with an
+        orange, a white and a yellow flap in the middle of the words.
+
+        While interrupting, the app/playlist loops park on ``_wait_if_interrupted`` and pick
+        back up the moment it clears. Our paint invalidates their unchanged-page record
+        (see _emit_page), so a static app really does redraw — the wall does not keep the
+        trigger's text just because the app's next page equals its last one.
+
+        ``blank_if_idle`` covers the case where nothing was running to redraw: the message
+        would otherwise just linger, so blank the board instead — UNLESS a manual message
+        took the board over while we were up (``_takeovers`` moved): that message is the
+        newest intent, and blanking it would destroy it."""
+        async with self._interrupt_lock:
+            takeovers = self._takeovers
+            self._interrupt_over.clear()
+            try:
+                # A wall that can draw gets a TOAST — accent bar, icon, big fitted
+                # text sliding up from the bottom — instead of flap-cell letters.
+                # Any miss (no panel, render/push failure) falls back to the cells.
+                toasted = (getattr(self._caps(), "has_canvas", False)
+                           and await self._emit_toast(text, icon, accent))
+                if not toasted:
+                    clean = self._normalize(text, frame=frame)
+                    await self._emit_page(clean, style=style,
+                                          speed=int(self.config.display.get("transition_speed", 15)))
+                await asyncio.sleep(max(0.0, seconds))
+            finally:
+                self._interrupt_over.set()
+        # A running app/playlist redraws itself now the interrupt is over; if there is none,
+        # the message would just sit there, so revert to blank.
+        if blank_if_idle and takeovers == self._takeovers \
+                and not (self.active_app or self.active_playlist):
+            await self.clear()
+
+    async def fire_overlay_ticker(self, text: str, seconds: float, *, frame: bool = False,
+                                  color=(255, 255, 255), band: bool = True) -> None:
+        """A trigger's NON-INTRUSIVE face on a canvas wall: scroll ``text`` as a lower-third
+        OVERLAY over whatever is running, for ``seconds``, then clear it. The overlay composites
+        on the firmware side (it does NOT take the panel over the way ``fire_interrupt``'s toast
+        does), so the running app keeps painting underneath and is never parked — which is the
+        point of offering it per-trigger.
+
+        Falls back to ``fire_interrupt`` (the toast / flap-cell interrupt) on a wall with no
+        overlay-ticker endpoint — a plain flap wall — or if the gateway refuses the ticker (Quiet
+        Time), so the trigger still notifies.
+
+        The clear is driven HERE after ``seconds`` rather than trusting the firmware TTL: the
+        ``seconds`` field is new (firmware v0.4.7) and not on every wall yet, so a companion-side
+        stop is what makes the duration hold everywhere. We still send ``seconds`` too, so a wall
+        that honours it self-dismisses even if the companion dies mid-wait. Non-blocking: the clear
+        runs as a background task (the overlay owns nothing, so there is no lock to hold)."""
+        secs = max(1, min(86400, int(seconds or 0)))
+        url = str(self.config.transport.get("gateway_url") or "").strip()
+        caps = self._caps()
+        canvas_ok = (getattr(caps, "has_canvas", False)
+                     and getattr(caps, "canvas_endpoints", False)
+                     and url and not self.config.sim_mode)
+        if not canvas_ok:
+            await self.fire_interrupt(text, secs, frame=frame)
+            return
+        line = " ".join(str(text or "").split())    # a grid-laid page collapses to its words
+        ok = await asyncio.to_thread(canvas.put_ticker, url, line, tuple(color), 2,
+                                     True, band, None, secs)
+        if not ok:
+            await self.fire_interrupt(text, secs, frame=frame)
+            return
+        self._ticker_token += 1
+        tok = self._ticker_token
+
+        async def _clear_after() -> None:
+            await asyncio.sleep(secs)
+            if self._ticker_token == tok:        # not superseded by a newer ticker
+                try:
+                    await asyncio.to_thread(canvas.put_ticker, url, "")
+                except Exception as e:
+                    log.debug("overlay ticker clear failed: %s", e)
+
+        tk = asyncio.create_task(_clear_after())
+        self._ticker_tasks.add(tk)
+        tk.add_done_callback(self._ticker_tasks.discard)
+
+    def show_temporary(self, text: str, seconds: float, *, style: str = "ltr",
+                       frame: bool = False, icon: str = "info", accent=None) -> bool:
+        """Show ``text`` for ``seconds``, then revert — to whatever was running, or to
+        blank if nothing was. Runs in the background (a message can last minutes; the
+        caller shouldn't block on it) and returns whether something was playing to come
+        back to.
+
+        A second message REPLACES a live one rather than queueing behind it on the
+        interrupt lock: "Dinner!" superseded by "Dinner NOW" should not wait out the
+        first message's full timer before appearing."""
+        running = bool(self.active_app or self.active_playlist)
+        old = self._temp_task
+        if old and not old.done():
+            old.cancel()   # its finally re-opens the interrupt gate; we take over cleanly
+        # Keep a reference: a bare create_task() can be garbage-collected mid-sleep.
+        self._temp_task = asyncio.create_task(
+            self.fire_interrupt(text, seconds, style=style, frame=frame, blank_if_idle=True,
+                                icon=icon, accent=accent))
+        return running
