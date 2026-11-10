@@ -25,10 +25,10 @@ Pack prices are rounded up to whole packs.
 | [5. Gateway & RS-485 bus](#5-gateway--rs-485-bus) | $18.99 |
 | [6. Power](#6-power) | $76.90 |
 | [7. LED perimeter strip](#7-led-perimeter-strip) | $38.37 |
-| [9. Case (plywood back, laser-cut acrylic)](#9-case) | ≈ $70.12 |
-| **Wall total (Kevin's hardware side)** | **≈ $811.61** |
+| [9. Case (plywood back, laser-cut acrylic)](#9-case) | ≈ $100.17 |
+| **Wall total (Kevin's hardware side)** | **≈ $841.66** |
 | [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $224.43 |
-| **Grand total** | **≈ $1,036** |
+| **Grand total** | **≈ $1,066** |
 
 Realistic all-in budget: **≈ $1,081–1,106**, about $131–156 over the $950 the proposal asks for.
 - The total above already includes shipping and tariffs for JLCPCB (the full checkout quote) and Elecrow.
@@ -281,17 +281,17 @@ How it goes together:
 - **Front:** 1/8" black acrylic, laser-cut in one piece. It has one window per module, sized from the module CAD. It's held on with M3 countersunk screws into printed brackets, so it comes off for service.
 - **Sides:** 1/8" black LED acrylic, about 95 mm deep. It looks matte black when the LEDs are off and passes about 29% of their light, in the LEDs' own colour. The WS2815 strip sits on printed clips about 10 mm inside the panels so the LEDs blend instead of showing as dots. The 4-pin DIN power jack goes through the left end panel.
 - **Joints:** printed corner brackets plus M3 screws and nuts left over from §3, which has about 120 spare M3×8 screws and 60 spare nuts.
-- **Laser bed:** the front and back each need a bed of at least about 900 × 290 mm. The 18 × 36" front sheet fits whole on a 36 × 24" bed; on a smaller bed, trim it to about 290 mm tall on a table saw first.
+- **Laser bed:** the front and back each need a bed of at least about 900 × 290 mm, and the one-piece top and bottom side strips need about 900 × 100 mm. The 18 × 36" front sheet fits whole on a 36 × 24" bed; on a smaller bed, trim it to about 290 mm tall on a table saw first.
 
 | Item | Link | Qty | Unit | Ext | Price |
 |---|---|---|---|---|---|
 | 1/4" × 2 × 4 ft sanded plywood (back). If it's laser-cut, birch cuts cleaner than pine | [Home Depot 203438872](https://homedepot.com/p/1-4-in-x-2-ft-x-4-ft-Pine-Sanded-Plywood-1502100/203438872) | 1 | $11.22 | $11.22 | SNIP |
 | 1/8" black acrylic, 18 × 36" (front: 880 × 280 in 914 × 457, which leaves room for a border or a taller case). The price is an estimate scaled by area between the 12 × 36" ($17.49) and 24 × 36" ($40.92) sheets; check the listing | [Amazon Falken Design B07NR99K5Z](https://www.amazon.com/dp/B07NR99K5Z) | 1 | ≈ $29.00 | ≈ $29.00 | EST |
 | *Alternative:* 24 × 36" of the same sheet, if 18 × 36" is out of stock | [Home Depot 308669314](https://www.homedepot.com/p/Falken-Design-24-in-x-36-in-x-1-8-in-Thick-Acrylic-Black-Opaque-Sheet-Falken-Design-ACRYLIC-BK-1-8-2436/308669314) | (1) | $40.92 | (+$11.92) | SNIP |
-| 1/8" black LED cast acrylic, 12 × 18" (sides). Two sheets give six 95 mm strips: the top and bottom are two strips each, joined at the centre, plus the two end panels | [Laser by the Creek](https://laseredbythecreek.com/products/1-8-black-led-cast-acrylic-sheets-matte-gloss-finish) | 2 | $14.95 | $29.90 | LIVE |
-| *Alternative:* the same material in 24 × 36", for seamless top and bottom strips | same listing | (1) | $59.95 | (+$30.05) | LIVE |
+| 1/8" black LED cast acrylic, 24 × 36" (sides). Cut into 95 × 914 mm strips: one piece each for the top and bottom (880 mm, no seam), and both 280 mm end panels from a third strip. That leaves about three strips spare for mistakes | [Laser by the Creek](https://laseredbythecreek.com/products/1-8-black-led-cast-acrylic-sheets-matte-gloss-finish) | 1 | $59.95 | $59.95 | LIVE |
+| *Alternative:* 2 × 12 × 18" of the same material ($14.95 each), but then the top and bottom are each two strips joined at the centre | same listing | (2) | $14.95 | (−$30.05) | LIVE |
 | M3 screws and nuts for the brackets and front panel | spares from §3 | ~24 | – | $0 | **Already have** |
-| **Subtotal** | | | | **≈ $70.12** | |
+| **Subtotal** | | | | **≈ $100.17** | |
 
 ## 10. 3D-printed parts (not priced)
 
