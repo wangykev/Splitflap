@@ -23,14 +23,14 @@ Pack prices are rounded up to whole packs.
 | [3. Module hardware (45 modules)](#3-module-hardware-45-modules) | $237.66 |
 | [4. Programming (UPDI flasher)](#4-programming-updi-flasher) | incl. above |
 | [5. Gateway & RS-485 bus](#5-gateway--rs-485-bus) | $18.99 |
-| [6. Power](#6-power) | $76.90 |
-| [7. LED perimeter strip](#7-led-perimeter-strip) | $38.37 |
+| [6. Power](#6-power) | $66.45 |
+| [7. LED perimeter strip](#7-led-perimeter-strip) | $36.98 |
 | [9. Case (plywood back, laser-cut acrylic)](#9-case) | ≈ $100.17 |
-| **Wall total (Kevin's hardware side)** | **≈ $841.66** |
+| **Wall total (Kevin's hardware side)** | **≈ $829.82** |
 | [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $224.43 |
-| **Grand total** | **≈ $1,066** |
+| **Grand total** | **≈ $1,054** |
 
-Realistic all-in budget: **≈ $1,081–1,106**, about $131–156 over the $950 the proposal asks for.
+Realistic all-in budget: **≈ $1,070–1,095**, about $120–145 over the $950 the proposal asks for.
 - The total above already includes shipping and tariffs for JLCPCB (the full checkout quote) and Elecrow.
 - Add roughly $45–70 for shipping from the other stores: Vetco, Adafruit, Seeed, Jameco, DigiKey, Waveshare and Laser by the Creek. Amazon is usually free over $35 or with Prime; Home Depot is store pickup.
 
@@ -168,7 +168,7 @@ cm of thin wire and superglue.
 | Item | Link | Qty | Unit | Ext | Price |
 |---|---|---|---|---|---|
 | Waveshare ESP32-S3-RS485-CAN | [waveshare.com](https://www.waveshare.com/esp32-s3-rs485-can.htm) (also on [Amazon](https://www.amazon.com/dp/B0FNCWZ3D1)) | 1 | $18.99 | $18.99 | LIVE |
-| Resistors: 330 Ω (LED data line) and 120 Ω (bus termination). Make sure you have both values | [SparkFun kit](https://www.sparkfun.com/resistor-kit-1-4w-500-total.html) ($9.95) / [Vetco 120 Ω](https://vetco.net/products/nte-qw112_120_ohm_1-4_watt_resistor) ($0.29) | 1 + 2 | – | $0 | **Already have** |
+| Resistors: 120 Ω (bus termination). The 330 Ω LED data resistor is on the power board (R9) | [SparkFun kit](https://www.sparkfun.com/resistor-kit-1-4w-500-total.html) ($9.95) / [Vetco 120 Ω](https://vetco.net/products/nte-qw112_120_ohm_1-4_watt_resistor) ($0.29) | 1 + 2 | – | $0 | **Already have** |
 | Twisted pair for RS-485 A/B between rows, ~2–3 m (self-made) | [Vetco Cat-6](https://vetco.net/products/cat-6_ethernet_cable_10_ft) ($6.49) | 1 | – | $0 | **Already have** |
 | **Subtotal** | | | | **$18.99** | |
 
@@ -200,34 +200,40 @@ DC cable plugs into the power board's 4-pin DIN jack, whose barrel pokes 4 mm th
 |---|---|---|---|---|---|
 | Mean Well OWA-200U-12: 12 V, 15 A, 180 W brick. Fully potted, IP67, fanless, Class II (no earth). US plug cord attached; 4-pin power DIN output plug (Kycon KPPX-4P or equivalent). 195 × 68 × 39.5 mm | [Jameco 2324383](https://www.jameco.com/z/OWA-200U-12-MEAN-WELL-12V-15A-180W-Moisture-proof-Power-Adaptor-DIN4_2324383.html) / [Bravo Electro](https://www.bravoelectro.com/owa-200u-12.html) ($61.80) | 1 | $59.50 | $59.50 | SNIP |
 | Kycon KPJX-4S-S: female 4-pin power DIN jack, right angle, PCB mount, shielded (J1 on the power board, hand-soldered). Mates with the brick's plug. **Before first power-up, check which pins are +V and −V with a multimeter on the brick's plug**; if it is reversed, use the power board's cut links (NT1/NT2) | [DigiKey 9990088](https://www.digikey.com/en/products/detail/kycon-inc/KPJX-4S-S/9990088) | 1 | $1.64 | $1.64 | SNIP |
-| Cole Hersee 58027-01: sealed SPST on-off rocker, 20 A at 12 V DC, 0.25" quick-connect tabs. Main switch, wired to the power board's SWITCH pads (J10) with 16 AWG; it carries the whole load (~11 A worst case) | [Waytek](https://waytekwire.com/product/cole-hersee-58027-01-sealed-rocker-switch) | 1 | $13.26 | $13.26 | SNIP |
-| 16 AWG wire and two 0.25" female quick-connects for the switch loop, ~2 ft | – | 1 | $2.50 | $2.50 | EST |
+| Switch Components RF2-1A-DC-2-RL: mini rocker, SPST off-on, 16 A at 12 V DC, red LED dot that lights when on. 3 × 0.187" (4.8 mm) quick-connect tabs. Snap-in, 19.2 × 13.0 mm cutout, panel 0.75–3.0 mm thick. Main switch, wired to the power board's SWITCH pads (J10) with 16 AWG; it carries the whole load (~11 A worst case). The LED's ground tab goes to NT2's GND hole (see note) | [TME](https://www.tme.com/us/en-us/details/rf2-1a-dc-2-rl/rocker-switches/switch-components/) | 1 | $2.81 | $2.81 | SNIP |
+| *Alternative:* Switch Components RF1-1A-DC-2-B-2: same 16 A at 12 V DC rocker, no LED, with ON-OFF printed on the rocker. 2 tabs, so no ground wire | [Jameco 2847895](https://www.jameco.com/z/RF1-1A-DC-2-B-2-Switch-Components-Mini-Rocker-2P-SPST-OFF-ON-with-ON-OFF-Print_2847895.html) | (1) | – | – | – |
+| 16 AWG wire for the switch loop (~2 ft), ~1 ft of 22–24 AWG for the LED ground, and three 0.187" (4.8 mm) female quick-connects | – | 1 | $2.50 | $2.50 | EST |
 | 18 AWG red/black wire for 12 V runs. About 15 ft: power board → 3 bus rows + both strip ends + gateway | [Vetco](https://vetco.net/products/jsc-2440_18_awg_2_conductor_red-black_speaker_wire_-_power_wire_-usa_made) ($1.05/ft) | ~15 ft | – | $0 | **Already have** |
 | Heat-shrink tubing | – | – | – | $0 | **Already have** |
 | *Optional:* ferrule crimp kit with 1800 ferrules | [Vetco](https://vetco.net/products/vupn1576_ferrule_wire_crimping_tool_kit_with_1800pcs) | (1) | $39.95 | – | LIVE |
-| **Subtotal** | | | | **$76.90** | |
+| **Subtotal** | | | | **$66.45** | |
 
 Notes:
-- **Main switch:** the brick has none, so the rocker on the case switches the 12 V after the jack. The power board's red ON LED shows it is on. Use a switch rated for DC: AC-only ratings arc and wear out on 12 V DC.
+- **Main switch:** the brick has none, so the rocker on the case switches the 12 V after the jack. Use a switch with a real DC rating: AC-only ratings (like the common KCD1 "20 A" Amazon rockers, really 6 A / 250 V AC) arc and wear out on 12 V DC.
+  - **Red LED:** red was picked as the least bright of the four colours (red, amber, green, blue); the eye is least sensitive to it. The datasheet gives no brightness figures, so this is a judgment, not a measured value. The power board's own red ON LED is inside the case.
+  - **LED ground:** the power board has no free GND pad, so solder the LED's ground wire into the GND-side hole of the NT2 cut link (pad 2, 1.7 mm). Beep it to J9's GND pad with a meter first: the other NT2 hole is the jack side.
+  - **Panel thickness:** the switch takes 0.75–3.0 mm. 1/8" acrylic is nominally 3.18 mm, so measure the side panel; if it is over 3.0 mm, mount the switch in a thin printed plate or thin the area around the cutout.
 - **Protection:** the brick shuts down on a short, overload or overheating. The power board adds a 15 V TVS crowbar on the input, a 7 A resettable fuse per row and a 3 A fuse for the gateway, each with a red LED that goes dark when it trips. Each driver also has its own 1.5 A polyfuse (F1).
 - **Removed from the earlier internal-supply plan:** Mean Well LRS-350-12 ($33.30), C14 inlet with fuse and switch ($13.89), 4 A fuses ($7.50), IEC C13 cord ($5.95; the brick's cord is attached), and the mains wire. Later replaced by the power board: the KPJX-PM-4S-S panel jack ($2.60) and the WAGO lever connectors.
 
 ## 7. LED perimeter strip
 
-WS2815 12 V, 144 LED/m, about 3 m around the perimeter. Data comes from GPIO2 through a
-74AHCT125 and a 330 Ω resistor. The strip is powered straight from the 12 V supply and injected at both
-ends. Details are in `../gateway/CLAUDE.md`, Phase 2.
+WS2815 12 V, 144 LED/m, about 3 m around the perimeter. Data comes from GPIO2 through the power
+board, which has the level shifter (U1, 74AHCT1G125), its own 5 V regulator (U2, 78L05) and the 330 Ω
+series resistor (R9). The strip wires to the power board's LED START (J8: 12V, DIN, BIN, GND) and LED END
+(J9) pads, so it is powered from the 12 V supply and injected at both ends. Details are in
+`../gateway/CLAUDE.md`, Phase 2.
 
 | Item | Link | Qty | Unit | Ext | Price |
 |---|---|---|---|---|---|
 | WS2815 12 V 144 LED/m, IP20, 3 m option | [SuperLightingLED](https://www.superlightingled.com/dc12v-ws2815-upgraded-ws2812b-1m-144-leds-individually-addressable-digital-led-strip-lights-dual-signal-wires-waterproof-dream-color-programmable-5050-rgb-flexible-led-ribbon-light-p-2134.html) | 1 | $36.98 | $36.98 | LIVE |
 | *Alternative:* BTF-LIGHTING WS2815 144/m, 1 m (buy 3) | [Amazon B07LG6J39V](https://www.amazon.com/dp/B07LG6J39V) | (3) | ≈ $19.94 | (≈ $59.82) | SNIP |
-| SN74AHCT125N level shifter, DIP-14 | [LCSC C354152](https://www.lcsc.com/product-detail/C354152.html) (ships with the JLC order) | 2 | $0.693 | $1.39 | LIVE |
-| 330 Ω resistor | from the §5 resistor kit | – | – | $0 | – |
-| 12 V → 5 V buck converter (for the 74AHCT125). Set and check it at 5.0 V before connecting | [Vetco D93](https://vetco.net/products/vupn7407_dc-dc_adjustable_step-down_voltage_regulator_module-_1-5-35vdc_output__2a_d93) ($6.95) | 1 | – | $0 | **Already have** |
-| 1000 µF capacitor, ≥16 V (across the strip's power input) | [Vetco](https://vetco.net/products/1000uf25vdc_1000uf_25_volt_electrolytic_capacitor) ($2.85 ea) | 1–2 | – | $0 | **Already have** |
-| Perfboard (for the level shifter) | [Adafruit #571](https://www.adafruit.com/product/571) ($12.50 / 3) | 1 | – | $0 | **Already have** |
-| **Subtotal** | | | | **$38.37** | |
+| 1000 µF capacitor, ≥16 V. One is C1 on the power board (bulk cap after the switch, hand-soldered), one goes across the strip's power input at the strip | [Vetco](https://vetco.net/products/1000uf25vdc_1000uf_25_volt_electrolytic_capacitor) ($2.85 ea) | 2 | – | $0 | **Already have** |
+| **Subtotal** | | | | **$36.98** | |
+
+**Replaced by the power board:** the SN74AHCT125N level shifter ×2 ($1.39), the 12 V → 5 V buck converter
+(Vetco D93), the perfboard (Adafruit #571) and the separate 330 Ω resistor. The buck and perfboard were
+already owned, so only the $1.39 comes off.
 
 Strip length: the strip runs around the inside of the case's side panels (§9). The case is about 880 × 280 mm, so that's about 2.3 m. 3 m is bought to leave margin for the corners and mounting.
 
@@ -274,7 +280,7 @@ Pi prices are high in 2026 because of the RAM shortage.
 The modules (606 × 240 mm) sit in the middle, with a bay on each side for the electronics. That makes the case about **880 × 280 × 95 mm** outside. The height is 240 mm of modules, plus about 15 mm above and below for the LED strip and its standoff, plus the two 3 mm panels.
 
 - **Left bay:** no longer holds mains or a power supply, since the 12 V brick sits outside the case. It only needs the power board (157 × 25.5 mm), whose DIN jack pokes through the case side next to the rocker switch, so it can shrink.
-- **Right bay (low voltage):** the gateway, on the top rail extended into the bay, plus the level-shifter board and buck converter.
+- **Right bay (low voltage):** the gateway, on the top rail extended into the bay. Nothing else goes here now that the level shifter is on the power board.
 
 How it goes together:
 - **Back:** 1/4" plywood, cut to 880 × 280 mm. It carries the 3 DIN rails, the bay electronics and the wall hangers.
