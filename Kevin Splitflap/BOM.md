@@ -235,6 +235,8 @@ series resistor (R9). The strip wires to the power board's LED START (J8: 12V, D
 (Vetco D93), the perfboard (Adafruit #571) and the separate 330 Ω resistor. The buck and perfboard were
 already owned, so only the $1.39 comes off.
 
+**Who pays:** we buy the strip ourselves, not Build18, and it isn't bought yet (see the note under §8).
+
 Strip length: the strip runs around the inside of the case's side panels (§9). The case is about 880 × 280 mm, so that's about 2.3 m. 3 m is bought to leave margin for the corners and mounting.
 
 ## 8. Raspberry Pi + voice satellite
@@ -277,7 +279,9 @@ The USB-RS485 dongle in the original Adam G BOM is **not needed**, because the g
 
 Pi prices are high in 2026 because of the RAM shortage.
 
-**Who pays:** the Pi 5, its power supply, the Active Cooler, the ReSpeaker, the VEML7700 and the gasket tape are bought by us, not Build18 ("Ourselves" on the Build18 parts list). The speaker driver goes through Build18.
+**Who pays:** the Pi 5, its power supply, the Active Cooler, the ReSpeaker, the VEML7700, the gasket tape and the LED strip (§7) are bought by us, not Build18 ("Ourselves" on the Build18 parts list). The speaker driver goes through Build18.
+- **Still to buy (red rows on the parts list):** the Pi 5, its power supply, the Active Cooler, the gasket tape and the LED strip.
+- **Already bought:** the ReSpeaker and the VEML7700.
 
 ## 9. Case
 
