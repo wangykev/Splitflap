@@ -25,12 +25,12 @@ Pack prices are rounded up to whole packs.
 | [5. Gateway & RS-485 bus](#5-gateway--rs-485-bus) | $18.99 |
 | [6. Power](#6-power) | $67.07 |
 | [7. LED perimeter strip](#7-led-perimeter-strip) | $56.67 |
-| [9. Case (plywood back, laser-cut acrylic)](#9-case) | ≈ $99.09 |
-| **Wall total (Kevin's hardware side)** | **≈ $849.05** |
+| [9. Case (plywood back, laser-cut acrylic)](#9-case) | ≈ $101.94 |
+| **Wall total (Kevin's hardware side)** | **≈ $851.90** |
 | [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $253.45 |
-| **Grand total** | **≈ $1,103** |
+| **Grand total** | **≈ $1,105** |
 
-Realistic all-in budget: **≈ $1,119–1,144**, about $169–194 over the $950 the proposal asks for.
+Realistic all-in budget: **≈ $1,122–1,147**, about $172–197 over the $950 the proposal asks for.
 - The total above already includes shipping and tariffs for JLCPCB (the full checkout quote) and Elecrow.
 - Add roughly $45–70 for shipping from the other stores: Vetco, Adafruit, Seeed, Jameco, DigiKey, Waveshare and Laser by the Creek. Amazon is usually free over $35 or with Prime; Home Depot is store pickup.
 
@@ -295,17 +295,17 @@ How it goes together:
 - **Front:** 1/8" black acrylic, laser-cut in one piece. It has one window per module, sized from the module CAD. It's held on with M3 countersunk screws into printed brackets, so it comes off for service.
 - **Sides:** 1/8" black LED acrylic, about 95 mm deep. It looks matte black when the LEDs are off and passes about 29% of their light, in the LEDs' own colour. The WS2815 strip sits on printed clips about 10 mm inside the panels so the LEDs blend instead of showing as dots. The 4-pin DIN power jack goes through the left end panel.
 - **Joints:** printed corner brackets plus M3 screws and nuts left over from §3, which has about 120 spare M3×8 screws and 60 spare nuts.
-- **Laser bed:** the front and back each need a bed of at least about 900 × 290 mm, and the one-piece top and bottom side strips need about 900 × 100 mm. The 18 × 36" front sheet fits whole on a 36 × 24" bed; on a smaller bed, trim it to about 290 mm tall on a table saw first.
+- **Laser bed:** the front and back each need a bed of at least about 900 × 290 mm, and the one-piece top and bottom side strips need about 900 × 100 mm. The 24 × 36" front sheet fits whole on a 36 × 24" bed; on a smaller bed, trim it to about 290 mm tall on a table saw first.
 
 | Item | Link | Qty | Unit | Ext | Price |
 |---|---|---|---|---|---|
 | 3/8" × 2 × 4 ft sanded plywood (back). Price is an estimate between the 1/4" ($11.22) and 23/32" (≈ $25) panels; check the store | [Home Depot 2 × 4 ft sanded plywood](https://www.homedepot.com/b/Lumber-Composites-Plywood/2-ft-x-4-ft/Sanded/N-5yc1vZbqm7Z1z1abxgZ1z1tly8) | 1 | ≈ $18.00 | ≈ $18.00 | EST |
-| 1/8" black cast acrylic, 18 × 36" (front: 880 × 280 in 914 × 457, which leaves room for a border or a taller case). eStreet Plastics #2025, cast, ships in 1–3 business days. The 12 × 36" sheet ($14.55) also fits, with only about 12 mm spare top and bottom | [eStreet Plastics B011251836](https://estreetplastics.com/product/1-8-x-18-x-36-black-plexiglass-acrylic-sheet-cast-2025/) | 1 | $21.14 | $21.14 | LIVE |
-| *Alternative:* 24 × 36" of the same sheet, if 18 × 36" is out of stock | [Home Depot 308669314](https://www.homedepot.com/p/Falken-Design-24-in-x-36-in-x-1-8-in-Thick-Acrylic-Black-Opaque-Sheet-Falken-Design-ACRYLIC-BK-1-8-2436/308669314) | (1) | $40.92 | (+$19.78) | SNIP |
+| 1/8" black P95 acrylic, 24 × 36": matte on one side, glossy on the other. Mount it matte side out; flip it if you prefer gloss, but decide before countersinking the screw holes. Front is 880 × 280 mm in 914 × 610 mm. Thickness runs about 0.090–0.125" (2.3–3.2 mm), still enough for the countersunk M3 heads | [eStreet Plastics P95](https://estreetplastics.com/Black-P95-Plexiglass-Acrylic-1-8-in-Thick-p/x-b20125.htm) | 1 | $23.99 | $23.99 | SNIP |
+| *Alternative:* 1/8" black cast acrylic, 18 × 36", glossy both sides | [eStreet Plastics B011251836](https://estreetplastics.com/product/1-8-x-18-x-36-black-plexiglass-acrylic-sheet-cast-2025/) | (1) | $21.14 | (−$2.85) | LIVE |
 | 1/8" black LED cast acrylic, 24 × 36" (sides). Cut into 95 × 914 mm strips: one piece each for the top and bottom (880 mm, no seam), and both 280 mm end panels from a third strip. That leaves about three strips spare for mistakes | [Laser by the Creek](https://laseredbythecreek.com/products/1-8-black-led-cast-acrylic-sheets-matte-gloss-finish) | 1 | $59.95 | $59.95 | LIVE |
 | *Alternative:* 2 × 12 × 18" of the same material ($14.95 each), but then the top and bottom are each two strips joined at the centre | same listing | (2) | $14.95 | (−$30.05) | LIVE |
 | M3 screws and nuts for the brackets and front panel | spares from §3 | ~24 | – | $0 | **Already have** |
-| **Subtotal** | | | | **≈ $99.09** | |
+| **Subtotal** | | | | **≈ $101.94** | |
 
 ## 10. 3D-printed parts (not priced)
 
