@@ -27,10 +27,10 @@ Pack prices are rounded up to whole packs.
 | [7. LED perimeter strip](#7-led-perimeter-strip) | $36.98 |
 | [9. Case (plywood back, laser-cut acrylic)](#9-case) | ≈ $106.95 |
 | **Wall total (Kevin's hardware side)** | **≈ $837.22** |
-| [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $248.41 |
-| **Grand total** | **≈ $1,086** |
+| [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $253.45 |
+| **Grand total** | **≈ $1,091** |
 
-Realistic all-in budget: **≈ $1,102–1,127**, about $152–177 over the $950 the proposal asks for.
+Realistic all-in budget: **≈ $1,107–1,132**, about $157–182 over the $950 the proposal asks for.
 - The total above already includes shipping and tariffs for JLCPCB (the full checkout quote) and Elecrow.
 - Add roughly $45–70 for shipping from the other stores: Vetco, Adafruit, Seeed, Jameco, DigiKey, Waveshare and Laser by the Creek. Amazon is usually free over $35 or with Prime; Home Depot is store pickup.
 
@@ -253,9 +253,9 @@ The USB-RS485 dongle in the original Adam G BOM is **not needed**, because the g
 | Dayton Audio ND65-4: 2.5" aluminum-cone full-range driver, 4 Ω, 15 W RMS, 85 Hz–20 kHz, 83 dB. Bare driver for a custom sealed enclosure (see note). Driven by the ReSpeaker's 5 W JST amp | [Parts Express 290-204](https://www.parts-express.com/Dayton-Audio-ND65-4-2-1-2-Aluminum-Cone-Full-Range-Driver-290-204) | 1 | $23.98 | $23.98 | SNIP |
 | *Cheaper alternative:* Peerless by Tymphany TC6FD00-04: 2" paper-cone full-range, 4 Ω, 15 W, 81.6 dB. Less bass than the ND65-4 | [Octopart](https://octopart.com/tc6fd00-04-peerless+by+tymphany-78639440) | (1) | ≈ $9.75 | (−$14.23) | SNIP |
 | *Fallback:* speaker, 8 Ω, the one already owned | [Adafruit #3351](https://www.adafruit.com/product/3351) ($3.95) | (1) | – | $0 | **Already have** |
+| Speaker gasket tape: foam tape to seal the driver's rim and the enclosure seams | [Amazon B0C2KHHDXV](https://www.amazon.com/dp/B0C2KHHDXV) | 1 | $5.99 | $5.99 | – |
 | Ambient light sensor: VEML7700 lux sensor, I2C, STEMMA QT (see note) | [Adafruit #4162](https://www.adafruit.com/product/4162) | 1 | $4.95 | $4.95 | LIVE |
-| STEMMA QT to female-header cable, 150 mm (sensor to Pi GPIO header) | [Adafruit #4397](https://www.adafruit.com/product/4397) | 1 | $0.95 | $0.95 | LIVE |
-| **Subtotal** | | | | **$248.41** | |
+| **Subtotal** | | | | **$253.45** | |
 
 - **Speaker:** a 2.5" full-range driver (Dayton ND65-4), bought new instead of reusing the owned 8 Ω one, so spoken replies sound natural:
   - It goes in a custom sealed enclosure with the ReSpeaker, below the display, firing downwards. Leave a gap of at least 1/2–1" under the driver so the sound can spread out, and seal the box's joints so it doesn't leak air.
@@ -268,7 +268,7 @@ The USB-RS485 dongle in the original Adam G BOM is **not needed**, because the g
   - **Why this sensor:** a bare photodiode needs an analog input, which the Pi doesn't have. The VEML7700 measures lux itself and talks I2C, so it plugs straight into the Pi with no other parts.
   - **Wiring:** Pi 3V3 (pin 1), SDA (GPIO2, pin 3), SCL (GPIO3, pin 5) and GND (pin 6). Enable I2C on the Pi.
   - **Placement:** mount the sensor at the Pi, below the display, facing into the room. Point it away from the LED strip, or the strip's own light will brighten itself.
-  - **The 150 mm cable:** if the sensor needs to sit further away, about 1 m of 4-wire cable still works at the standard 100 kHz I2C speed.
+  - **Cable:** no STEMMA QT cable is bought; wire the sensor's header pads to the Pi with 4 jumper wires. About 1 m of 4-wire cable still works at the standard 100 kHz I2C speed if the sensor sits further away.
   - **Home Assistant (Jace):** HA has no built-in VEML7700 integration. Read it with a small script or add-on that publishes lux over MQTT, or with a custom integration.
   - **Brightness curve:** an automation turns lux into a brightness level and sends it to the gateway.
     - Eyes see brightness logarithmically, so map log(lux) to brightness. For example, about 10% at 10 lux, rising to 100% at 1,000 lux or more.
@@ -276,6 +276,8 @@ The USB-RS485 dongle in the original Adam G BOM is **not needed**, because the g
   - **The power cap still wins:** the gateway uses the lower of the brightness from HA and the motor-budget cap in §6. A bright room never pushes the brick past its limit.
 
 Pi prices are high in 2026 because of the RAM shortage.
+
+**Who pays:** the Pi 5, its power supply, the Active Cooler, the ReSpeaker, the VEML7700 and the gasket tape are bought by us, not Build18 ("Ourselves" on the Build18 parts list). The speaker driver goes through Build18.
 
 ## 9. Case
 
