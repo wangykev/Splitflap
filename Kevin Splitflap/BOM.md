@@ -25,12 +25,12 @@ Pack prices are rounded up to whole packs.
 | [5. Gateway & RS-485 bus](#5-gateway--rs-485-bus) | $18.99 |
 | [6. Power](#6-power) | $67.07 |
 | [7. LED perimeter strip](#7-led-perimeter-strip) | $36.98 |
-| [9. Case (plywood back, laser-cut acrylic)](#9-case) | ≈ $106.95 |
-| **Wall total (Kevin's hardware side)** | **≈ $837.22** |
+| [9. Case (plywood back, laser-cut acrylic)](#9-case) | ≈ $99.09 |
+| **Wall total (Kevin's hardware side)** | **≈ $829.36** |
 | [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $253.45 |
-| **Grand total** | **≈ $1,091** |
+| **Grand total** | **≈ $1,083** |
 
-Realistic all-in budget: **≈ $1,107–1,132**, about $157–182 over the $950 the proposal asks for.
+Realistic all-in budget: **≈ $1,099–1,124**, about $149–174 over the $950 the proposal asks for.
 - The total above already includes shipping and tariffs for JLCPCB (the full checkout quote) and Elecrow.
 - Add roughly $45–70 for shipping from the other stores: Vetco, Adafruit, Seeed, Jameco, DigiKey, Waveshare and Laser by the Creek. Amazon is usually free over $35 or with Prime; Home Depot is store pickup.
 
@@ -296,12 +296,12 @@ How it goes together:
 | Item | Link | Qty | Unit | Ext | Price |
 |---|---|---|---|---|---|
 | 3/8" × 2 × 4 ft sanded plywood (back). Price is an estimate between the 1/4" ($11.22) and 23/32" (≈ $25) panels; check the store | [Home Depot 2 × 4 ft sanded plywood](https://www.homedepot.com/b/Lumber-Composites-Plywood/2-ft-x-4-ft/Sanded/N-5yc1vZbqm7Z1z1abxgZ1z1tly8) | 1 | ≈ $18.00 | ≈ $18.00 | EST |
-| 1/8" black acrylic, 18 × 36" (front: 880 × 280 in 914 × 457, which leaves room for a border or a taller case). The price is an estimate scaled by area between the 12 × 36" ($17.49) and 24 × 36" ($40.92) sheets; check the listing | [Amazon Falken Design B07NR99K5Z](https://www.amazon.com/dp/B07NR99K5Z) | 1 | ≈ $29.00 | ≈ $29.00 | EST |
-| *Alternative:* 24 × 36" of the same sheet, if 18 × 36" is out of stock | [Home Depot 308669314](https://www.homedepot.com/p/Falken-Design-24-in-x-36-in-x-1-8-in-Thick-Acrylic-Black-Opaque-Sheet-Falken-Design-ACRYLIC-BK-1-8-2436/308669314) | (1) | $40.92 | (+$11.92) | SNIP |
+| 1/8" black cast acrylic, 18 × 36" (front: 880 × 280 in 914 × 457, which leaves room for a border or a taller case). eStreet Plastics #2025, cast, ships in 1–3 business days. The 12 × 36" sheet ($14.55) also fits, with only about 12 mm spare top and bottom | [eStreet Plastics B011251836](https://estreetplastics.com/product/1-8-x-18-x-36-black-plexiglass-acrylic-sheet-cast-2025/) | 1 | $21.14 | $21.14 | LIVE |
+| *Alternative:* 24 × 36" of the same sheet, if 18 × 36" is out of stock | [Home Depot 308669314](https://www.homedepot.com/p/Falken-Design-24-in-x-36-in-x-1-8-in-Thick-Acrylic-Black-Opaque-Sheet-Falken-Design-ACRYLIC-BK-1-8-2436/308669314) | (1) | $40.92 | (+$19.78) | SNIP |
 | 1/8" black LED cast acrylic, 24 × 36" (sides). Cut into 95 × 914 mm strips: one piece each for the top and bottom (880 mm, no seam), and both 280 mm end panels from a third strip. That leaves about three strips spare for mistakes | [Laser by the Creek](https://laseredbythecreek.com/products/1-8-black-led-cast-acrylic-sheets-matte-gloss-finish) | 1 | $59.95 | $59.95 | LIVE |
 | *Alternative:* 2 × 12 × 18" of the same material ($14.95 each), but then the top and bottom are each two strips joined at the centre | same listing | (2) | $14.95 | (−$30.05) | LIVE |
 | M3 screws and nuts for the brackets and front panel | spares from §3 | ~24 | – | $0 | **Already have** |
-| **Subtotal** | | | | **≈ $106.95** | |
+| **Subtotal** | | | | **≈ $99.09** | |
 
 ## 10. 3D-printed parts (not priced)
 
