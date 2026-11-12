@@ -24,13 +24,13 @@ Pack prices are rounded up to whole packs.
 | [4. Programming (UPDI flasher)](#4-programming-updi-flasher) | incl. above |
 | [5. Gateway & RS-485 bus](#5-gateway--rs-485-bus) | $18.99 |
 | [6. Power](#6-power) | $67.07 |
-| [7. LED perimeter strip](#7-led-perimeter-strip) | $36.98 |
+| [7. LED perimeter strip](#7-led-perimeter-strip) | $56.67 |
 | [9. Case (plywood back, laser-cut acrylic)](#9-case) | ≈ $99.09 |
-| **Wall total (Kevin's hardware side)** | **≈ $829.36** |
+| **Wall total (Kevin's hardware side)** | **≈ $849.05** |
 | [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $253.45 |
-| **Grand total** | **≈ $1,083** |
+| **Grand total** | **≈ $1,103** |
 
-Realistic all-in budget: **≈ $1,099–1,124**, about $149–174 over the $950 the proposal asks for.
+Realistic all-in budget: **≈ $1,119–1,144**, about $169–194 over the $950 the proposal asks for.
 - The total above already includes shipping and tariffs for JLCPCB (the full checkout quote) and Elecrow.
 - Add roughly $45–70 for shipping from the other stores: Vetco, Adafruit, Seeed, Jameco, DigiKey, Waveshare and Laser by the Creek. Amazon is usually free over $35 or with Prime; Home Depot is store pickup.
 
@@ -226,10 +226,10 @@ series resistor (R9). The strip wires to the power board's LED START (J8: 12V, D
 
 | Item | Link | Qty | Unit | Ext | Price |
 |---|---|---|---|---|---|
-| WS2815 12 V 144 LED/m, IP20, 3 m option | [SuperLightingLED](https://www.superlightingled.com/dc12v-ws2815-upgraded-ws2812b-1m-144-leds-individually-addressable-digital-led-strip-lights-dual-signal-wires-waterproof-dream-color-programmable-5050-rgb-flexible-led-ribbon-light-p-2134.html) | 1 | $36.98 | $36.98 | LIVE |
-| *Alternative:* BTF-LIGHTING WS2815 144/m, 1 m (buy 3) | [Amazon B07LG6J39V](https://www.amazon.com/dp/B07LG6J39V) | (3) | ≈ $19.94 | (≈ $59.82) | SNIP |
+| BTF-LIGHTING WS2815 12 V 144 LED/m, IP30, 1 m reel (buy 3). Select the 144 LED / 3.2 ft option | [Amazon B07LG5JG3Z](https://www.amazon.com/dp/B07LG5JG3Z) | 3 | $18.89 | $56.67 | SNIP |
+| *Backup:* SuperLightingLED WS2815 144/m, IP20, one 3 m reel | [SuperLightingLED](https://www.superlightingled.com/dc12v-ws2815-upgraded-ws2812b-1m-144-leds-individually-addressable-digital-led-strip-lights-dual-signal-wires-waterproof-dream-color-programmable-5050-rgb-flexible-led-ribbon-light-p-2134.html) | (1) | $36.98 | (−$19.69) | LIVE |
 | 1000 µF capacitor, ≥16 V. One is C1 on the power board (bulk cap after the switch, hand-soldered), one goes across the strip's power input at the strip | [Vetco](https://vetco.net/products/1000uf25vdc_1000uf_25_volt_electrolytic_capacitor) ($2.85 ea) | 2 | – | $0 | **Already have** |
-| **Subtotal** | | | | **$36.98** | |
+| **Subtotal** | | | | **$56.67** | |
 
 **Replaced by the power board:** the SN74AHCT125N level shifter ×2 ($1.39), the 12 V → 5 V buck converter
 (Vetco D93), the perfboard (Adafruit #571) and the separate 330 Ω resistor. The buck and perfboard were
