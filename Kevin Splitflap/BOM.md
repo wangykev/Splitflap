@@ -23,14 +23,14 @@ Pack prices are rounded up to whole packs.
 | [3. Module hardware (45 modules)](#3-module-hardware-45-modules) | $237.66 |
 | [4. Programming (UPDI flasher)](#4-programming-updi-flasher) | incl. above |
 | [5. Gateway & RS-485 bus](#5-gateway--rs-485-bus) | $18.99 |
-| [6. Power](#6-power) | $66.45 |
+| [6. Power](#6-power) | $67.07 |
 | [7. LED perimeter strip](#7-led-perimeter-strip) | $36.98 |
 | [9. Case (plywood back, laser-cut acrylic)](#9-case) | ≈ $100.17 |
-| **Wall total (Kevin's hardware side)** | **≈ $829.82** |
+| **Wall total (Kevin's hardware side)** | **≈ $830.44** |
 | [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $224.43 |
-| **Grand total** | **≈ $1,054** |
+| **Grand total** | **≈ $1,055** |
 
-Realistic all-in budget: **≈ $1,070–1,095**, about $120–145 over the $950 the proposal asks for.
+Realistic all-in budget: **≈ $1,071–1,096**, about $121–146 over the $950 the proposal asks for.
 - The total above already includes shipping and tariffs for JLCPCB (the full checkout quote) and Elecrow.
 - Add roughly $45–70 for shipping from the other stores: Vetco, Adafruit, Seeed, Jameco, DigiKey, Waveshare and Laser by the Creek. Amazon is usually free over $35 or with Prime; Home Depot is store pickup.
 
@@ -200,13 +200,13 @@ DC cable plugs into the power board's 4-pin DIN jack, whose barrel pokes 4 mm th
 |---|---|---|---|---|---|
 | Mean Well OWA-200U-12: 12 V, 15 A, 180 W brick. Fully potted, IP67, fanless, Class II (no earth). US plug cord attached; 4-pin power DIN output plug (Kycon KPPX-4P or equivalent). 195 × 68 × 39.5 mm | [Jameco 2324383](https://www.jameco.com/z/OWA-200U-12-MEAN-WELL-12V-15A-180W-Moisture-proof-Power-Adaptor-DIN4_2324383.html) / [Bravo Electro](https://www.bravoelectro.com/owa-200u-12.html) ($61.80) | 1 | $59.50 | $59.50 | SNIP |
 | Kycon KPJX-4S-S: female 4-pin power DIN jack, right angle, PCB mount, shielded (J1 on the power board, hand-soldered). Mates with the brick's plug. **Before first power-up, check which pins are +V and −V with a multimeter on the brick's plug**; if it is reversed, use the power board's cut links (NT1/NT2) | [DigiKey 9990088](https://www.digikey.com/en/products/detail/kycon-inc/KPJX-4S-S/9990088) | 1 | $1.64 | $1.64 | SNIP |
-| Switch Components RF2-1A-DC-2-RL: mini rocker, SPST off-on, 16 A at 12 V DC, red LED dot that lights when on. 3 × 0.187" (4.8 mm) quick-connect tabs. Snap-in, 19.2 × 13.0 mm cutout, panel 0.75–3.0 mm thick. Main switch, wired to the power board's SWITCH pads (J10) with 16 AWG; it carries the whole load (~11 A worst case). The LED's ground tab goes to NT2's GND hole (see note) | [DigiKey](https://www.digikey.com/en/products/detail/switch-components/RF2-1A-DC-2-RL/11492834) (also [TME](https://www.tme.com/us/en-us/details/rf2-1a-dc-2-rl/rocker-switches/switch-components/)) | 1 | ≈ $2.81 | ≈ $2.81 | EST |
+| Switch Components RF2-1A-DC-2-RL: mini rocker, SPST off-on, 16 A at 12 V DC, red LED dot that lights when on. 3 × 0.187" (4.8 mm) quick-connect tabs. Snap-in, 19.2 × 13.0 mm cutout, panel 0.75–3.0 mm thick. Main switch, wired to the power board's SWITCH pads (J10) with 16 AWG; it carries the whole load (~11 A worst case). The LED's ground tab goes to NT2's GND hole (see note) | [DigiKey](https://www.digikey.com/en/products/detail/switch-components/RF2-1A-DC-2-RL/11492834) (also [TME](https://www.tme.com/us/en-us/details/rf2-1a-dc-2-rl/rocker-switches/switch-components/)) | 1 | $3.43 | $3.43 | LIVE |
 | *Alternative:* Switch Components RF1-1A-DC-2-B-2: same 16 A at 12 V DC rocker, no LED, with ON-OFF printed on the rocker. 2 tabs, so no ground wire | [Jameco 2847895](https://www.jameco.com/z/RF1-1A-DC-2-B-2-Switch-Components-Mini-Rocker-2P-SPST-OFF-ON-with-ON-OFF-Print_2847895.html) | (1) | – | – | – |
 | 16 AWG wire for the switch loop (~2 ft), ~1 ft of 22–24 AWG for the LED ground, and three 0.187" (4.8 mm) female quick-connects | – | 1 | $2.50 | $2.50 | EST |
 | 18 AWG red/black wire for 12 V runs. About 15 ft: power board → 3 bus rows + both strip ends + gateway | [Vetco](https://vetco.net/products/jsc-2440_18_awg_2_conductor_red-black_speaker_wire_-_power_wire_-usa_made) ($1.05/ft) | ~15 ft | – | $0 | **Already have** |
 | Heat-shrink tubing | – | – | – | $0 | **Already have** |
 | *Optional:* ferrule crimp kit with 1800 ferrules | [Vetco](https://vetco.net/products/vupn1576_ferrule_wire_crimping_tool_kit_with_1800pcs) | (1) | $39.95 | – | LIVE |
-| **Subtotal** | | | | **$66.45** | |
+| **Subtotal** | | | | **$67.07** | |
 
 Notes:
 - **Main switch:** the brick has none, so the rocker on the case switches the 12 V after the jack. Use a switch with a real DC rating: AC-only ratings (like the common KCD1 "20 A" Amazon rockers, really 6 A / 250 V AC) arc and wear out on 12 V DC.
