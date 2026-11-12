@@ -25,12 +25,12 @@ Pack prices are rounded up to whole packs.
 | [5. Gateway & RS-485 bus](#5-gateway--rs-485-bus) | $18.99 |
 | [6. Power](#6-power) | $67.07 |
 | [7. LED perimeter strip](#7-led-perimeter-strip) | $36.98 |
-| [9. Case (plywood back, laser-cut acrylic)](#9-case) | ≈ $100.17 |
-| **Wall total (Kevin's hardware side)** | **≈ $830.44** |
-| [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $224.43 |
-| **Grand total** | **≈ $1,055** |
+| [9. Case (plywood back, laser-cut acrylic)](#9-case) | ≈ $106.95 |
+| **Wall total (Kevin's hardware side)** | **≈ $837.22** |
+| [8. Raspberry Pi + voice satellite (software side)](#8-raspberry-pi--voice-satellite) | $228.61 |
+| **Grand total** | **≈ $1,066** |
 
-Realistic all-in budget: **≈ $1,071–1,096**, about $121–146 over the $950 the proposal asks for.
+Realistic all-in budget: **≈ $1,082–1,107**, about $132–157 over the $950 the proposal asks for.
 - The total above already includes shipping and tariffs for JLCPCB (the full checkout quote) and Elecrow.
 - Add roughly $45–70 for shipping from the other stores: Vetco, Adafruit, Seeed, Jameco, DigiKey, Waveshare and Laser by the Creek. Amazon is usually free over $35 or with Prime; Home Depot is store pickup.
 
@@ -250,14 +250,15 @@ The USB-RS485 dongle in the original Adam G BOM is **not needed**, because the g
 | Seeed ReSpeaker XVF3800 USB 4-Mic Array: 360° far-field pickup rated to 5 m, with beamforming, noise suppression and echo cancellation. Has a 3.5 mm out and a 5 W JST speaker amp. Buy the USB version, not the XIAO version | [Seeed](https://www.seeedstudio.com/ReSpeaker-XVF3800-USB-Mic-Array-p-6488.html) | 1 | $60.99 | $60.99 | LIVE |
 | Pi 5 case. Leave an opening above the Active Cooler's fan | [Adafruit #5816](https://www.adafruit.com/product/5816) ($12.00) | 1 | – | $0 | **3D-printing own** |
 | microSD, 32 GB or more, A1/A2, ideally an endurance card (HA writes constantly) | [PiShop.us SanDisk High Endurance](https://www.pishop.us/product/sandisk-high-endurance-microsdhc-card-32gb-blank/) ($29.95) | 1 | – | $0 | **Already have** |
-| Speaker, 8 Ω (later, for spoken replies; see note) | [Adafruit #3351](https://www.adafruit.com/product/3351) ($3.95) | 1 | – | $0 | **Already have** |
+| Seeed Mono Enclosed Speaker, 4 Ω 5 W (made for the ReSpeaker family). Plugs into the ReSpeaker's 5 W JST speaker port; check the plug matches before wiring | [openelab (US warehouse)](https://openelab.com/products/seeed-studio-mono-enclosed-speaker) | 1 | $4.18 | $4.18 | SNIP |
+| *Fallback:* speaker, 8 Ω, the one already owned | [Adafruit #3351](https://www.adafruit.com/product/3351) ($3.95) | (1) | – | $0 | **Already have** |
 | Ambient light sensor: VEML7700 lux sensor, I2C, STEMMA QT (see note) | [Adafruit #4162](https://www.adafruit.com/product/4162) | 1 | $4.95 | $4.95 | LIVE |
 | STEMMA QT to female-header cable, 150 mm (sensor to Pi GPIO header) | [Adafruit #4397](https://www.adafruit.com/product/4397) | 1 | $0.95 | $0.95 | LIVE |
-| **Subtotal** | | | | **$224.43** | |
+| **Subtotal** | | | | **$228.61** | |
 
-- **Speaker:** not needed now; the wall gives feedback through its LEDs. If spoken replies are added later:
-  - Put a spare 8 Ω speaker next to the ReSpeaker on the floor, below the display.
-  - Wire it to the ReSpeaker's JST speaker port, which has an onboard 5 W amp.
+- **Speaker:** a 4 Ω 5 W enclosed speaker, bought new instead of reusing the owned 8 Ω one:
+  - Put it next to the ReSpeaker on the floor, below the display.
+  - Plug it into the ReSpeaker's JST speaker port, which has an onboard 5 W amp, so no separate amplifier is needed. The owned PAM amp boards are only needed if a speaker is ever driven from a line-level source instead (the ReSpeaker's 3.5 mm jack, or a USB audio dongle on the Pi).
   - The ReSpeaker's 3.5 mm jack can feed a JBL. The Pi 5 has no 3.5 mm jack. Test whether plugging into the jack mutes the JST speaker.
   - Nothing audio-related goes in the display.
   - Because the ReSpeaker plays the audio, its echo cancellation works.
@@ -283,7 +284,7 @@ The modules (606 × 240 mm) sit in the middle, with a bay on each side for the e
 - **Right bay (low voltage):** the gateway, on the top rail extended into the bay. Nothing else goes here now that the level shifter is on the power board.
 
 How it goes together:
-- **Back:** 1/4" plywood, cut to 880 × 280 mm. It carries the 3 DIN rails, the bay electronics and the wall hangers.
+- **Back:** 3/8" plywood, cut to 880 × 280 mm. It carries the 3 DIN rails, the bay electronics and the wall hangers. 3/8" (instead of 1/4") gives screws about 9 mm of thread and keeps the 880 mm span flat; cut it on a table or circular saw, since most hobby lasers won't cut it cleanly.
 - **Front:** 1/8" black acrylic, laser-cut in one piece. It has one window per module, sized from the module CAD. It's held on with M3 countersunk screws into printed brackets, so it comes off for service.
 - **Sides:** 1/8" black LED acrylic, about 95 mm deep. It looks matte black when the LEDs are off and passes about 29% of their light, in the LEDs' own colour. The WS2815 strip sits on printed clips about 10 mm inside the panels so the LEDs blend instead of showing as dots. The 4-pin DIN power jack goes through the left end panel.
 - **Joints:** printed corner brackets plus M3 screws and nuts left over from §3, which has about 120 spare M3×8 screws and 60 spare nuts.
@@ -291,13 +292,13 @@ How it goes together:
 
 | Item | Link | Qty | Unit | Ext | Price |
 |---|---|---|---|---|---|
-| 1/4" × 2 × 4 ft sanded plywood (back). If it's laser-cut, birch cuts cleaner than pine | [Home Depot 203438872](https://homedepot.com/p/1-4-in-x-2-ft-x-4-ft-Pine-Sanded-Plywood-1502100/203438872) | 1 | $11.22 | $11.22 | SNIP |
+| 3/8" × 2 × 4 ft sanded plywood (back). Price is an estimate between the 1/4" ($11.22) and 23/32" (≈ $25) panels; check the store | [Home Depot 2 × 4 ft sanded plywood](https://www.homedepot.com/b/Lumber-Composites-Plywood/2-ft-x-4-ft/Sanded/N-5yc1vZbqm7Z1z1abxgZ1z1tly8) | 1 | ≈ $18.00 | ≈ $18.00 | EST |
 | 1/8" black acrylic, 18 × 36" (front: 880 × 280 in 914 × 457, which leaves room for a border or a taller case). The price is an estimate scaled by area between the 12 × 36" ($17.49) and 24 × 36" ($40.92) sheets; check the listing | [Amazon Falken Design B07NR99K5Z](https://www.amazon.com/dp/B07NR99K5Z) | 1 | ≈ $29.00 | ≈ $29.00 | EST |
 | *Alternative:* 24 × 36" of the same sheet, if 18 × 36" is out of stock | [Home Depot 308669314](https://www.homedepot.com/p/Falken-Design-24-in-x-36-in-x-1-8-in-Thick-Acrylic-Black-Opaque-Sheet-Falken-Design-ACRYLIC-BK-1-8-2436/308669314) | (1) | $40.92 | (+$11.92) | SNIP |
 | 1/8" black LED cast acrylic, 24 × 36" (sides). Cut into 95 × 914 mm strips: one piece each for the top and bottom (880 mm, no seam), and both 280 mm end panels from a third strip. That leaves about three strips spare for mistakes | [Laser by the Creek](https://laseredbythecreek.com/products/1-8-black-led-cast-acrylic-sheets-matte-gloss-finish) | 1 | $59.95 | $59.95 | LIVE |
 | *Alternative:* 2 × 12 × 18" of the same material ($14.95 each), but then the top and bottom are each two strips joined at the centre | same listing | (2) | $14.95 | (−$30.05) | LIVE |
 | M3 screws and nuts for the brackets and front panel | spares from §3 | ~24 | – | $0 | **Already have** |
-| **Subtotal** | | | | **≈ $100.17** | |
+| **Subtotal** | | | | **≈ $106.95** | |
 
 ## 10. 3D-printed parts (not priced)
 
