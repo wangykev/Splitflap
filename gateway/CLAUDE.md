@@ -18,9 +18,9 @@ interface, update the contract first and re-run its §10 checks.
 
 | Folder | What | Notes |
 |---|---|---|
-| `SplitFlapGateway/` | ESP32 gateway firmware (v3.17.0) | PlatformIO. Waveshare ESP32-S3-RS485-CAN. `openapi.yaml` is the REST spec. |
-| `SplitFlapUniversalFirmware/` | Module firmware | Runs on each flap module. |
-| `SplitFlapGatewayCompanion/` | Companion app (v2.10.23) | Runs on the Pi. It's the only writer to the flaps. |
+| `SplitFlapGateway/` | ESP32 gateway firmware (v4.4.0) | PlatformIO. Waveshare ESP32-S3-RS485-CAN. `openapi.yaml` is the REST spec. |
+| `SplitFlapUniversalFirmware/` | Module firmware (v36) | Runs on each flap module. Our Driverv5 boards take the **v5** image (hardware USART). |
+| `SplitFlapGatewayCompanion/` | Companion app (v2.11.0) | Runs on the Pi. It's the only writer to the flaps. |
 | `mock-gateway/` | **Ours.** Mock gateway, contract, HA package, reference client | Lets the software side build with no hardware. |
 | `../Kevin Splitflap/PCBs/` | Module driver PCB (ATtiny1616, KiCad) | |
 | `../adamGsplitflap/` | Original module hardware/protocol (Adam G Makes) | |
@@ -52,13 +52,14 @@ voice satellite (Pi) → HA Assist → LLM ──calls──► script.splitflap
 **Done**
 - [x] Read through the gateway, Companion and module firmware. The interface is mapped and the gateway
       firmware stays **unmodified** for the first hardware bring-up.
-- [x] `mock-gateway/mock_gateway.py`: emulates firmware v3.17.0 closely enough that an unmodified
+- [x] `mock-gateway/mock_gateway.py`: emulates firmware v4.4.0 closely enough that an unmodified
       Companion works against it. Also implements the LED API. Has a viewer at `/`.
 - [x] `mock-gateway/CONTRACT.md`: the Pi ↔ wall contract.
 - [x] `mock-gateway/ha/splitflap_venus.yaml`: Home Assistant package (LEDs, time/weather voice commands,
       the `show_answer` script, re-sending a lost answer).
 - [x] `mock-gateway/venus_client.py`: standalone reference client plus `sanitize()`.
-- [x] Verified end to end with the real Companion against the mock (CONTRACT.md §10).
+- [x] Verified end to end with the real Companion against the mock (CONTRACT.md §10). Re-run
+      2026-11-13 after the upstream update to gateway 4.4.0 / Companion 2.11.0 / modules v36.
 
 **Not yet verified**
 - [ ] The HA package has not been loaded into a running Home Assistant. Templates were only
@@ -72,7 +73,8 @@ voice satellite (Pi) → HA Assist → LLM ──calls──► script.splitflap
       firmware (`pio run -t upload`, or the prebuilt `.factory.bin` at `0x0`).
 - [ ] First boot: join the `Split-Flap-GW` / `12345678` AP, open `192.168.4.1`, enter WiFi. Set the
       **grid to 3 rows × 15 cols** in Settings.
-- [ ] Build the modules, flash `SplitFlapUniversalFirmware`, then provision IDs 0–44 (id = row × 15 + col)
+- [ ] Build the modules, flash `SplitFlapUniversalFirmware` (our Driverv5 boards need the **v5**
+      image: `pio run -e v5`, or `firmware-v5.hex` from the release; never the v4 `.hex` over UPDI), then provision IDs 0–44 (id = row × 15 + col)
       and calibrate each one from the gateway dashboard.
 - [ ] Smoke test: `curl -X POST http://<gw>/api/flap/text -d '{"text":"HELLO","start":0}'`.
 - [ ] Hand the gateway IP to Jace. Jace points the Companion's `GATEWAY_URL` and the HA
@@ -102,10 +104,10 @@ Implement exactly CONTRACT.md §4. The mock (`mock_gateway.py`, `Wall.set_led` /
 | File | Change |
 |---|---|
 | `src/led.h`, `src/led.cpp` (new) | LED state machine (`idle`/`listening`/`thinking`/`speaking`) and the animations: listening = whole strip glows, thinking = a comet circling from the start corner in the configured direction, speaking = pulse, idle = off. Auto-expiry: listening 10 s, thinking/speaking 30 s. Cap brightness at 40 during quiet time. A `taskLED` FreeRTOS task draws at about 60 fps. |
-| `src/common.h` | `LED_PIN 2`, `LED_COUNT`, `LED_START_CORNER`, `LED_DIRECTION`, `LED_MAX_BRIGHTNESS`. Put them next to the RS-485 pins (around line 116). |
+| `src/common.h` | `LED_PIN 2`, `LED_COUNT`, `LED_START_CORNER`, `LED_DIRECTION`, `LED_MAX_BRIGHTNESS`. Put them next to the RS-485 pins (around line 118). |
 | `platformio.ini` | Add `adafruit/Adafruit NeoPixel` to `lib_deps`. It uses RMT, so WiFi can't glitch it. |
-| `src/main.cpp` | `ledInit()` in `setup()`. Spawn `taskLED` on **core 1**, low priority, next to the other tasks (around line 140), so it never competes with RS-485 on core 0. Optionally add it to `[WDG]` stack telemetry. |
-| `src/web.cpp` | `GET`/`POST /api/led` plus `OPTIONS`. **Don't wrap it in `CONTENTGATED`**: LEDs must work during maintenance. Validation and errors match the contract. **Add `"led"` to `features` and the `"led":{count,startCorner,direction}` object to `/api/capabilities`** (around line 1190). That single entry turns LEDs on for the Pi. |
+| `src/main.cpp` | `ledInit()` in `setup()`. Spawn `taskLED` on **core 1**, low priority, next to the other tasks (around line 166), so it never competes with RS-485 on core 0. Optionally add it to `[WDG]` stack telemetry. |
+| `src/web.cpp` | `GET`/`POST /api/led` plus `OPTIONS`. **Don't wrap it in `CONTENTGATED`**: LEDs must work during maintenance. Validation and errors match the contract. **Add `"led"` to `features` and the `"led":{count,startCorner,direction}` object to `/api/capabilities`** (around line 1232). That single entry turns LEDs on for the Pi. |
 | `src/mqtt.cpp` | Subscribe to `<prefix>/led/set` (plain state or JSON) and handle it **before** the `busBusy()` gate, like `maintenance/set`. Publish `<prefix>/led/state`. |
 | `src/config.*` (optional) | Persist the count, corner, direction and brightness so they can be changed from the dashboard without reflashing. |
 | `openapi.yaml` | Document `/api/led`. |

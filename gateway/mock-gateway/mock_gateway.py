@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Mock SplitFlapGateway -- a stand-in for the ESP32 so the Pi side can be built with no hardware.
 
-It answers the same REST API as the real gateway firmware (v3.17.0, SplitFlapGateway/src/web.cpp),
+It answers the same REST API as the real gateway firmware (v4.4.0, SplitFlapGateway/src/web.cpp),
 closely enough that an UNMODIFIED SplitFlapGatewayCompanion drives it exactly as it would drive the
 real wall: registration heartbeat, capabilities, config sync, the settings blob store, and pages
 sent as /api/rs485/batch frames. It also implements the LED perimeter strip API defined in
@@ -30,12 +30,17 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 # --- Constants mirrored from the firmware (SplitFlapGateway/src/common.h) -------------------------
-FW_VERSION = "3.17.0"
-API_VERSION = "3.1.0"
+FW_VERSION = "4.4.0"
+API_VERSION = "3.3.0"
 PRODUCT_NAME = "Split-Flap Gateway"          # no "matrix" in it: the Companion would treat it as one
 FLAPSET_DEFAULT = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$&()-+=;q:%'.,/?*roygbpw"
 FLAP_COLOUR_CODES = "roygbpw"
 CAP_COLOUR_NAMES = ["red", "orange", "yellow", "green", "blue", "purple", "white"]
+# The six symbol flaps (v4.1, src/flapsym.h FLAP_SYMBOLS): reserved lowercase wire byte, the symbol
+# it shows, and the Companion's pictograph name. Table order is report order.
+FLAP_SYMBOLS = [("h", "♥", "heart"), ("u", "↑", "up"), ("d", "↓", "down"),
+                ("s", "☺", "smiley"), ("l", "←", "left"), ("t", "→", "right")]
+SYMBOL_SHOWN = {code: sym for code, sym, _ in FLAP_SYMBOLS}
 STEP_MS_MAX = 100
 DEFAULT_STEP_MS = 15
 BATCH_MAX_FRAMES = 512
@@ -238,32 +243,44 @@ class Wall:
     def display_cells(self):
         """GET /api/display/state cells: the tracked char, '"' for the q flap."""
         with self.lock:
-            return ['"' if c == "q" else c for c in self.shown]
+            return ['"' if c == "q" else SYMBOL_SHOWN.get(c, c) for c in self.shown]
 
     def display_string(self):
         return "".join(self.display_cells())
 
     # --- capabilities ------------------------------------------------------------------------
     def common_charset(self):
-        """charset.common: the reel without colour codes, 'q' reported as '"' (capPutMap)."""
-        out = []
-        for c in self.reel:
-            if c in FLAP_COLOUR_CODES:
-                continue
-            c = '"' if c == "q" else c
-            if c not in out:
-                out.append(c)
-        return "".join(out)
+        """charset.common (capFoldReel + capPutMap): the reel without colour codes, 'q' reported
+        as '"', symbol letters as their symbols, in BYTE order (the firmware walks a 256-entry
+        byte map, windows-1252), not reel order."""
+        def byte(c):
+            try:
+                return c.encode("cp1252")[0]
+            except UnicodeEncodeError:
+                return 0x100
+        chars = {'"' if c == "q" else c for c in self.reel if c not in FLAP_COLOUR_CODES}
+        return "".join(SYMBOL_SHOWN.get(c, c) for c in sorted(chars, key=byte))
+
+    def spelling(self):
+        """capabilities.spelling (v4.1): the wire byte for each symbol, always all six; '"' -> 'q'
+        only when the reel borrows 'q' and doesn't print '"' itself (capQuoteSpelling)."""
+        out = {sym: code for code, sym, _ in FLAP_SYMBOLS}
+        if "q" in self.reel and '"' not in self.reel:
+            out['"'] = "q"
+        return out
 
     def capabilities(self):
         colors = [CAP_COLOUR_NAMES[k] for k, c in enumerate(FLAP_COLOUR_CODES) if c in self.reel]
         common = self.common_charset()
-        features = ["colors", "index", "batch", "quiet", "maintenance", "ha", "ota", "flapconfig"]
+        features = ["colors", "index", "batch", "quiet", "maintenance", "ha", "ota", "flapconfig",
+                    "symbols"]
         doc = {
             "product": PRODUCT_NAME, "fw": FW_VERSION, "api": API_VERSION,
             "grid": {"rows": self.rows, "cols": self.cols},
             "modules": self.n, "maxFlaps": SF_MAX_FLAPS,
             "colors": colors,
+            "pictographs": [name for code, _, name in FLAP_SYMBOLS if code in self.reel],
+            "spelling": self.spelling(),
             "charset": {"uniform": True, "union": common, "common": common,
                         "assumed": [], "unknown": []},
             "sets": [{"flaps": len(self.reel), "source": "reported", "chars": self.reel,
@@ -933,7 +950,7 @@ button.on{border-color:var(--warn);color:var(--warn)}
 .ok{color:var(--ok)}.bad{color:var(--bad)}
 </style></head><body>
 <h1>Mock Split-Flap Gateway</h1>
-<p class="sub">Stand-in for the ESP32 gateway (firmware v3.17.0 API) + the contract-defined LED strip. Not real hardware.</p>
+<p class="sub">Stand-in for the ESP32 gateway (firmware v4.4.0 API) + the contract-defined LED strip. Not real hardware.</p>
 <div id="stage"><canvas id="ring"></canvas><div id="grid"></div></div>
 <div class="bar">
   <button id="bMaint">Maintenance</button><button id="bQuiet">Quiet time</button>
@@ -989,7 +1006,7 @@ poll();requestAnimationFrame(frame);
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Mock SplitFlapGateway (firmware v3.17.0 API + LED strip)")
+    ap = argparse.ArgumentParser(description="Mock SplitFlapGateway (firmware v4.4.0 API + LED strip)")
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8080)
     ap.add_argument("--rows", type=int, default=3)

@@ -12,7 +12,7 @@
 #  restart Home Assistant.
 #
 #  Requires HA 2024.10+ (assist_satellite entities, "triggers:/actions:" syntax).
-#  Verified against: gateway firmware v3.17.0 (mock), Companion v2.10.23.
+#  Verified against: gateway firmware v4.4.0 (mock), Companion v2.11.0.
 # =================================================================================================
 
 # --- Sensors: what the gateway and the Companion say about themselves ----------------------------

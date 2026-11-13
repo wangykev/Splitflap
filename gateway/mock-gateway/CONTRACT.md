@@ -4,9 +4,9 @@ This is the agreement between the **hardware side** (Kevin: modules, ESP32 gatew
 the **software side** (Jace: Home Assistant, voice, LLM). Build against the mock gateway in this
 folder. When the real wall is ready, the only change is an IP address.
 
-**Verified against:** gateway firmware **v3.17.0**, emulated by `mock_gateway.py`, and
-SplitFlapGatewayCompanion **v2.10.23** (commit `ada131e`, 2026-10-12), run unmodified against
-the mock. If either one is upgraded, re-run the checks in [§10](#10-checks-to-re-run-after-any-upgrade).
+**Verified against:** gateway firmware **v4.4.0**, emulated by `mock_gateway.py`, and
+SplitFlapGatewayCompanion **v2.11.0** (tag `v2.11.0`, 2026-10-21), run unmodified against
+the mock. (First verified 2026-10-19 against firmware v3.17.0 and Companion v2.10.23.) If either one is upgraded, re-run the checks in [§10](#10-checks-to-re-run-after-any-upgrade).
 
 ---
 
@@ -44,7 +44,7 @@ to every call (the first wall is always `default`; `GET /api/displays` lists the
 | Blank the wall | `POST /api/apps/stop` | Stops the app **and blanks the wall**. **You don't need to call this before a message.** |
 | What's showing | `GET /api/current_state` | `active_app` (null while a message is up), `string` (45 chars, row-major), `transport.connected` |
 | Live updates | `GET /api/events` (SSE) | `event: display` with the same JSON whenever something changes |
-| Health | `GET /api/health` | `{"ok":true,"version":"2.10.23"}` |
+| Health | `GET /api/health` | `{"ok":true,"version":"2.11.0"}` |
 
 Weather location is a Companion global setting:
 `POST /api/global-settings` `{"values":{"zip_code":"94110","timezone":"America/Los_Angeles"}}`.
@@ -235,7 +235,11 @@ This is what the mock emulates and the Companion uses. **Don't call these from t
 
 ## 10. Checks to re-run after any upgrade
 
-These were run on 2026-10-19 with the real Companion against the mock:
+These were run on 2026-10-19 with the real Companion against the mock. Checks 1–6 were re-run on
+2026-11-13 with Companion 2.11.0 against the mock at firmware 4.4.0, and all passed. Checks 7–8
+cover `sanitize()` and the HA package, which didn't change, so they weren't re-run. New in 2.11.0
+and also checked: a symbol the reel doesn't carry (♥) arrives as its stand-in (`*`), or as a
+blank if the reel lacks that too (↑ → `^`), with no off-reel warnings.
 
 1. **Connects:** the Companion registers, reads capabilities, mirrors its settings blob (663 bytes)
    to the gateway, and the blob survives a mock restart (`--state-file`).
