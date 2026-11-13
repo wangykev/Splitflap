@@ -142,10 +142,8 @@ void printFlap(int idx) {
   }
 }
 
-// The sensor just went from "no magnet" to "magnet". Like the firmware, snap the
-// position to where that trigger is (stepsPerRev - homeOffset), which silently
-// corrects any missed steps. Report how far off we were first, since that drift
-// is exactly what this bench test is looking for.
+// Like the firmware, snap the position to the trigger point, which silently
+// corrects missed steps. Report the drift first: that is what this test looks for.
 void onSensorEdge() {
   long expected = modPos(stepsPerRev - homeOffset, stepsPerRev);
   if (homed) {
@@ -164,8 +162,7 @@ void onSensorEdge() {
   pos = expected;
 }
 
-// One half-step FORWARD, in the firmware's order: read the sensor (snap on a
-// trigger), step the coils, advance the position and wrap at one revolution.
+// firmware advance(), same order: read the sensor before stepping.
 void stepForward() {
   bool s = sensorActive();
   if (s && !lastSensor) onSensorEdge();
@@ -180,8 +177,7 @@ void stepForward() {
   if (stepsSinceEdge >= 0) stepsSinceEdge++;
 }
 
-// Bench only: the firmware never turns the drum backwards (the flaps fall one
-// way), so this loses the position.
+// Bench only: the firmware never turns backwards, so this loses the position.
 void stepBackward() {
   if (++phase > 7) phase = 0;
   writeCoils(HALF_STEP[phase]);
@@ -213,9 +209,8 @@ void moveSteps(long n) {
   endMove();
 }
 
-// firmware homeModule(): step until the sensor reads "magnet" (not waiting for a
-// fresh edge, so a drum parked on the magnet homes at once), then step the home
-// offset to land on flap 0.
+// firmware homeModule(). It stops on the magnet LEVEL, not a fresh edge, so a
+// drum parked on the magnet homes at once.
 bool home() {
   Serial.println(F("Homing..."));
   beginMove();
@@ -246,8 +241,7 @@ bool home() {
   return true;
 }
 
-// firmware moveToIndex(): home first if the position is unknown, then step
-// forward to flap idx at idx * stepsPerRev / NUM_FLAPS.
+// firmware moveToIndex()
 void goToFlap(int idx) {
   if (!homed && !home()) return;
   long target = (long)idx * stepsPerRev / NUM_FLAPS;
@@ -263,8 +257,7 @@ void goToFlap(int idx) {
   Serial.println();
 }
 
-// Exact match, like the firmware: capitals for letters; lowercase r o y g b p w
-// are colours and q is the double quote.
+// Exact match, like the firmware: lowercase letters are colours (and q), not letters.
 int flapIndexOf(char c) {
   for (int i = 0; i < NUM_FLAPS; i++) {
     if (FLAPS[i] == c) return i;
@@ -272,7 +265,7 @@ int flapIndexOf(char c) {
   return -1;
 }
 
-// firmware moveToChar(): a character that isn't on the reel homes to flap 0.
+// firmware moveToChar()
 void goToChar(char c) {
   int idx = flapIndexOf(c);
   if (idx >= 0) {
@@ -286,9 +279,8 @@ void goToChar(char c) {
 }
 
 // ================================================================ tests ===
-// firmware detectHallPolarity(): sample the raw pin once per step over one
-// revolution. The magnet covers a small part of it, so the MINORITY level is the
-// magnet. Doesn't change anything if the pin never changes or the signal is too wide.
+// firmware detectHallPolarity(): the magnet covers a small part of a revolution,
+// so the MINORITY level over one turn is the magnet level.
 bool detectPolarity() {
   Serial.println(F("Detecting sensor polarity over one revolution..."));
   long low = 0, high = 0;
@@ -328,8 +320,7 @@ bool detectPolarity() {
   return true;
 }
 
-// Like the firmware's calibrate: detect the polarity, measure the revolution
-// (trigger to trigger; averaged over 3 here), then home.
+// firmware calibrateModule(), but averaged over 3 revolutions.
 void calibrate() {
   detectPolarity();
   Serial.println(F("Measuring steps per revolution over 3 revolutions..."));
@@ -514,8 +505,7 @@ void handleCommand(String line) {
     case 'h': home(); break;
     case 'c': calibrate(); break;
     case 'z':
-      // Same as the firmware's nudge: move flap 0 to here by adding the steps
-      // taken since flap 0 to the home offset.
+      // Like the firmware's nudge(): fold the steps taken since flap 0 into the offset.
       if (!homed) { Serial.println(F("  Home first with h.")); break; }
       homeOffset = modPos(homeOffset + pos, stepsPerRev);
       pos = 0;
