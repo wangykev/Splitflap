@@ -3,6 +3,45 @@
 Home Assistant shows this when an update is available. Newest first; the version headings
 have to match the add-on's `version`, or the update notice comes up blank.
 
+## 2.11.0
+
+Promoted to stable. The beta channel is caught up to the stable release; it will move ahead again
+when the next prerelease begins.
+
+- Symbol flaps on physical reels: a physical wall shows `♥ ↑ ↓ ☺ ← →` where its reel carries them
+  (gateway firmware 4.1.0+ reports the byte per symbol; the companion sends it). A module without
+  the flap falls back (`♥ → *`); older gateways and Matrix walls are unchanged. Compose and the
+  playlist editor gain a symbol palette; emoji spellings (❤, ⬆, 🙂 …) are accepted. Down-arrow
+  stand-in is now capital `V`, and a double-quote flap is driven correctly.
+
+## 2.10.26
+
+Promoted to stable. The beta channel is caught up to the stable release; it will move ahead again
+when the next prerelease begins.
+
+- Vestaboard heart flap (code 62): the flap that prints a degree sign on a classic Flagship is a
+  heart on a Note, which is what we present — so a heart now round-trips as `♥` instead of becoming a
+  degree sign. Reels without a heart flap degrade it to `*`; a wall degree still maps to 62 too.
+
+## 2.10.25
+
+Promoted to stable. The beta channel is caught up to the stable release; it will move ahead again
+when the next prerelease begins.
+
+- Vestaboard Local API reads now present a standard board shape — a Note (3×15) by default, a
+  Flagship (6×22) for larger walls — so clients that only know those two sizes (ha-vestaboard) can
+  read a non-standard wall (e.g. 1×15) instead of failing setup with "Unexpected error". The write
+  path still drives the real wall; 3×15 and 6×22 walls are unchanged.
+
+## 2.10.24
+
+Promoted to stable. The beta channel is caught up to the stable release; it will move ahead again
+when the next prerelease begins.
+
+- Vestaboard Local API now also answers on port 7000, the fixed port the ha-vestaboard HA
+  integration uses (8000 still works for scripts/rest_commands). Point the integration at just the
+  Home Assistant host — no port, no URL. Fixes the "Invalid hostname or IP address" error.
+
 ## 2.10.23
 
 Promoted to stable. The beta channel is caught up to the stable release; it will move ahead again

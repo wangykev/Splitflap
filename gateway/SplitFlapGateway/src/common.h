@@ -73,6 +73,8 @@
 #include <ArduinoOTA.h>
 #include <Update.h>
 #include <FFat.h>
+
+#include "flapsym.h"   // the colour/symbol flap codes and the reel resolution rules
 #include <ESPmDNS.h>
 #include <esp_mac.h>
 
@@ -130,14 +132,14 @@ static inline uint32_t boardId32() {          // 8 hex digits -- MQTT client id,
 // The companion reads this back as "version" from GET /api/config and stores its
 // settings on the gateway only when that version parses >= 3.1 (a 3.0 gateway
 // omits the field, so it keeps settings local). This firmware clears that floor.
-#define FW_VERSION           "3.17.0"         // gateway firmware version (UI + boot log)
+#define FW_VERSION           "4.4.0"         // gateway firmware version (UI + boot log)
 // What this gateway IS, and which gateway API it speaks. GET /api/capabilities reports both, so
 // a client can tell a real split-flap wall from the Matrix Portal emulation of one without
 // sniffing the firmware version -- they answer the same URLs with the same shape, and the
 // differences that matter (a fixed reel per module vs one shared reel; colours as flaps vs
 // colours as names) are exactly what capabilities describes.
 #define PRODUCT_NAME         "Split-Flap Gateway"
-#define API_VERSION          "3.1.0"
+#define API_VERSION          "3.3.0"
 
 /* ---- Network / service defaults (overridable at runtime via Settings) ---- */
 #define DEFAULT_AP_SSID      "Split-Flap-GW"  // SoftAP SSID when no WiFi configured
@@ -145,6 +147,11 @@ static inline uint32_t boardId32() {          // 8 hex digits -- MQTT client id,
 #define DEFAULT_BAUD         9600UL           // RS-485 bus baud rate
 #define DEFAULT_MQTT_PORT    1883
 #define DEFAULT_MQTT_PREFIX  "splitflap"
+// The name the gateway answers to on the local network: http://<name>.local, and the
+// hostname espota and the Arduino IDE discover. One short word, so a person can type it.
+// Two gateways on one LAN must not share it -- change one of them in Settings.
+#define DEFAULT_MDNS_NAME    "splitflap"
+#define MDNS_NAME_MAX        31          // one DNS label, and what mDNS advertises
 #define DEFAULT_NTP_SERVER   "pool.ntp.org"   // overridable via Settings
 #define NTP_TIMEOUT_MS       8000UL
 
@@ -213,9 +220,26 @@ extern char gResetReason[12];   // why the board last rebooted, for /api/status
 #define BUS_GAP_LONG_MS           260UL   // after a long reply (d, A) -- over the module's 200 ms resync
 #define BUS_RETRY_GAP_MS          300UL   // before a second attempt at a long read
 
+/* Module firmware v33 added an optional checksummed frame: ~HHHH<frame>\n, where HHHH is the
+   CRC-16/CCITT-FALSE of the frame. A module that supports it verifies before acting, drops a
+   frame that fails, and answers with checksummed replies; older firmware skips the prefix and
+   runs the frame unchecked, so a checksummed frame is safe to send to a mixed wall. The
+   gateway uses it for the exchanges where a corrupted frame does damage or costs a retry --
+   reads, writes, restores -- and leaves display content plain, because five extra bytes on a
+   six-byte display command is 80% more traffic for a frame that the next update overwrites. */
+#define MODULE_FW_CHECKSUM        33     // first module firmware that verifies ~HHHH frames
+#define CRC_PREFIX_BYTES          5      // '~' + four hex digits
+
 #define MODULE_REPROBE_BACKOFF_MS 3600000UL // after MODULE_PROBE_MAX_TRIES unanswered re-queries, leave the module alone for this long before asking again (it stays in the registry throughout)
 #define MODULE_PROBE_GRACE_MS   3000UL    // wait this long for a stale module's version reply before the next probe attempt
 #define MODULE_PROBE_SPACING_MS 150UL     // gap between consecutive stale probes: a module answers a bare 'v' INSTANTLY, so back-to-back queries make each reply collide with the next probe -- space them so every reply is received (and clears the probe) before the next query goes out
+// An UNPROVISIONED module advertises its serial every 10-15 s, unprompted -- so unlike a
+// provisioned one (which only speaks when addressed, and is therefore kept for ever) its
+// silence IS evidence. After this long with no advertisement it is gone: unplugged, or given
+// an ID from another gateway, or provisioned and now answering as itself. ~8 missed
+// advertisements, so a busy bus or a collision or two never clears a module that is still
+// there, and the Provision list stops filling up with modules that have left.
+#define UNPROV_STALE_MS         120000UL
 #define MODULE_PROBE_BATCH      8         // max stale modules probed per prune cycle; the rest are probed on later cycles (bounds the net task's spaced-probe burst)
 #define MODULE_PROBE_MAX_TRIES  4         // unanswered re-queries (one per ~1 min cycle) before backing off for MODULE_REPROBE_BACKOFF_MS. A single reply is easily lost to a bus collision while the host is streaming display frames, so one probe is not proof of absence.
 #define MODULE_POSTPROV_VER_MS  4000UL    // delay after a provisioning ack before the first version query. A freshly-provisioned module writes its new ID to EEPROM and then runs a staggered startup (~150ms x new-ID), so it can be unresponsive for several seconds; wait well past that before the first query.
@@ -269,13 +293,20 @@ extern char gResetReason[12];   // why the board last rebooted, for /api/status
 // "assumed" rather than folding the guess in silently.
 //
 // 'q' is not the letter q. The classic reel has no lowercase, so the char map borrowed that byte
-// for the DOUBLE-QUOTE flap -- and r/o/y/g/b/p/w are the seven COLOUR flaps, not letters. Both
-// are protocol, not repertoire, which is why capabilities reports '"' and a colour list rather
-// than 'q' and seven stray consonants.
+// for the DOUBLE-QUOTE flap -- and r/o/y/g/b/p/w are the seven COLOUR flaps, not letters. The six
+// SYMBOL flaps (h u d s l t -- heart, the arrows, a smiley) work the same way: a printed symbol
+// has no Windows-1252 byte, so it is carried as a reserved lowercase letter too. All three are
+// protocol, not repertoire, which is why capabilities reports '"', a colour list and the symbols
+// themselves rather than 'q' and thirteen stray consonants.
+//
+// The table, the resolution rules and the colour/symbol code defines live in flapsym.h -- kept
+// Arduino-free so the native tests compile the firmware's own table rather than a copy of it.
 #define FLAPSET_DEFAULT " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$&()-+=;q:%'.,/?*roygbpw"
-#define FLAP_COLOUR_CODES  "roygbpw"
 #define MODULES_FILE     "/modules.dat"
-#define MODULES_MAGIC    0x53464733UL   // "SFG3" (bumped: PersistedModule gained the flap set)
+#define MODULES_MAGIC    0x53464734UL   // "SFG4" (bumped: PersistedModule gained the driver
+                                        // board. A file written by an older gateway is
+                                        // ignored, and the wall refills it on the next roll
+                                        // call -- the file is a cache, not the truth.)
 
 /* ---- Companion settings blob (FFat) -- v3.1 --------------------------------
  * The companion app can park its settings here so its container stays stateless.
@@ -379,6 +410,7 @@ extern volatile bool          gCompanionUrlDirty;
 extern volatile unsigned long gCompanionUrlDirtyMs;  // millis() of last companion post
 extern volatile bool gDisplayDirty;
 extern volatile bool gOtaInProgress;
+extern volatile unsigned long gOtaProgressMs;
 // Last flap byte transmitted to each module id (= grid cell, row-major). Lets the
 // display wall show EVERY cell that was written -- provisioned or not -- straight
 // from the frame stream, independent of the module registry. 0 = nothing sent.
@@ -391,6 +423,25 @@ extern volatile unsigned long gLastRxMs;
 extern volatile unsigned long wdgNetMs;
 extern volatile unsigned long wdgWebMs;
 extern TaskHandle_t hTaskRTC, hTaskRS485, hTaskOTA, hTaskWeb, hTaskNet;
+// Feed the web task's watchdog -- but only FROM the web task. The bus helpers that wait for a
+// reply are shared with the Soak, Probe, Restore and module-update tasks, and they used to
+// stamp wdgWebMs wherever they ran: a web task that wedged during an hour-long soak was being
+// vouched for every 10 ms by the soak, and the supervisor could not see it until the job ended.
+static inline void wdgWebFeed() {
+  if (xTaskGetCurrentTaskHandle() == hTaskWeb) wdgWebMs = millis();
+}
+// The MQTT session, as taskNetwork last saw it. EVERYTHING outside taskNetwork reads this and
+// not mqtt.connected(): PubSubClient::connected() is not a query -- it recv()s on the socket
+// and, if the link has dropped, stop()s the client, freeing its buffers in whatever task
+// asked. Asked from taskWeb (every status poll) or taskRS485 (every frame) while taskNetwork
+// is inside mqtt.loop() on the same socket, that is a use-after-free with a broker restart
+// as its trigger. One owner, one flag.
+extern volatile bool gMqttUp;
+// Requests TO the owner: drop the session (an update is starting), or drop it and re-read the
+// broker settings (they were just changed). taskNetwork acts on them within one pass.
+extern volatile bool gMqttDropReq, gMqttReconfigReq;
+// Set by Settings when the time server or zone changes: sync again now (taskNetwork).
+extern volatile bool gNtpResyncReq;
 extern bool ntpSynced;
 extern unsigned long staDownSince;
 

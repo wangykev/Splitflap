@@ -118,6 +118,7 @@ static bool restoreParseEntry(JsonObjectConst o, RestoreEntry& e) {
     char tmp[SF_MAX_FLAPS * 4 + 4];
     bool all = true;
     size_t n = utf8ToFlap(chars, tmp, sizeof(tmp), &all);
+    flapSymToLetters(tmp);        // a backed-up reel may carry symbols; it stores their letters
     if (all && n >= 1 && n <= SF_MAX_FLAPS) memcpy(e.flapBytes, tmp, n + 1);
   }
   // A flap set is only trusted when it is self-consistent: the character set must be
@@ -281,7 +282,7 @@ static void restoreWriteOne(const RestoreEntry& e, unsigned long* readyAt) {
   }
   if (!perEntry && e.map[0])
     printf("[RESTORE] %s: no id known -- map sent inline (the module may drop entries)\n", e.sn);
-  rs485SendStr(frame);
+  if (wId >= 0) sfSendToModule(wId, frame); else rs485SendStr(frame);
   vTaskDelay(pdMS_TO_TICKS(RESTORE_MXW_SETTLE_MS));   // map erase + flap-set write on the module
 
   if (e.id >= 0 && (!known || curId != (uint8_t)e.id)) {
@@ -303,10 +304,18 @@ static void restoreWriteOne(const RestoreEntry& e, unsigned long* readyAt) {
       const char* v = end + 1;
       long pos = strtol(v, &end, 10);
       if (end == v) break;
-      if (idx >= 0 && idx < SF_MAX_FLAPS) {
+      // A position outside one revolution is not a position. Values like 65368 (which is
+      // -168 stored as unsigned) exist in older backups; replaying one writes nonsense back
+      // into the module, and module firmware v33 refuses it anyway -- silently, so the only
+      // trace would be a verify mismatch nobody can explain. Skip it and say so.
+      const bool posSane = (pos >= 0 && (e.totalSteps <= 0 || pos < e.totalSteps));
+      if (idx >= 0 && idx < SF_MAX_FLAPS && posSane) {
         sfWritePos(wId, (int)idx, (int)pos);
         sent++;
         vTaskDelay(pdMS_TO_TICKS(RESTORE_ENTRY_GAP_MS));
+      } else if (idx >= 0 && idx < SF_MAX_FLAPS) {
+        printf("[RESTORE] %s: flap %ld has position %ld, outside 0..%d -- left uncalibrated\n",
+               e.sn, idx, pos, e.totalSteps - 1);
       }
       if (*end == ',') p = end + 1; else break;
     }
@@ -378,11 +387,15 @@ static void restoreFinish(uint8_t state) {
 }
 
 // ---- the task ----------------------------------------------------------------------
-static void taskRestore(void* pv) {
+// The run itself, as an ordinary function that RETURNS. It used to be the task function, and
+// every exit deleted the task on the spot -- a call that never returns, so the parsed backup
+// below (a JsonDocument: ~50 KB for a 64-module wall, up to the size of the file) was never
+// destroyed. Each restore leaked the whole document.
+static void restoreRun() {
   // 1. The post-boot delay. The lock is already held (state == WAITING).
   while ((long)(millis() - gRestore.startAtMs) < 0 && !gRestoreCancel)
     vTaskDelay(pdMS_TO_TICKS(100));
-  if (gRestoreCancel) { restoreFinish(RESTORE_CANCELLED); hTaskRestore = NULL; vTaskDelete(NULL); }
+  if (gRestoreCancel) { restoreFinish(RESTORE_CANCELLED); return; }
 
   gRestore.startedMs = millis();
   printf("[RESTORE] starting (%s) from %s\n", gRestore.trigger, gRestoreSrc);
@@ -394,7 +407,7 @@ static void taskRestore(void* pv) {
     strlcpy(gRestore.lastError, why, sizeof(gRestore.lastError));
     printf("[RESTORE] cannot start: %s\n", why);
     restoreFinish(RESTORE_FAILED);
-    hTaskRestore = NULL; vTaskDelete(NULL);
+    return;
   }
   JsonArrayConst mods = doc["modules"].as<JsonArrayConst>();
   int total = (int)mods.size();
@@ -415,6 +428,11 @@ static void taskRestore(void* pv) {
     for (JsonObjectConst o : mods) {
       if (i >= total) break;
       if (gRestoreCancel) break;
+      // Renewed per module. One lease for the whole phase was sized at 4 s a module, and a
+      // fully calibrated module takes about 6 (ten if its id is reassigned): past ~57 modules
+      // the hold ran out mid-phase and content, MQTT and the background queries all resumed
+      // on top of EEPROM writes.
+      busHold("restore", BUS_EXCLUSIVE, 120000UL);
       RestoreEntry e;
       if (!restoreParseEntry(o, e)) {
         res[i] = RES_SKIPPED;
@@ -428,7 +446,7 @@ static void taskRestore(void* pv) {
       gRestore.done = i;
     }
   }
-  if (gRestoreCancel) { restoreFinish(RESTORE_CANCELLED); hTaskRestore = NULL; vTaskDelete(NULL); }
+  if (gRestoreCancel) { restoreFinish(RESTORE_CANCELLED); return; }
 
   // 4. Verify phase, with one repair round for anything that did not match.
   gRestore.state = RESTORE_VERIFYING;
@@ -442,6 +460,7 @@ static void taskRestore(void* pv) {
       int idx = i++;
       gRestore.done = i;
       if (res[idx] == RES_SKIPPED || res[idx] == RES_OK) continue;
+      busHold("restore", BUS_EXCLUSIVE, 120000UL);        // per module, as in the write phase
       RestoreEntry e;
       if (!restoreParseEntry(o, e)) { res[idx] = RES_SKIPPED; continue; }
       // A re-provisioned module is deaf while it restarts; give it its time.
@@ -471,7 +490,7 @@ static void taskRestore(void* pv) {
     }
     gRestore.okCount = ok; gRestore.mismatch = mm; gRestore.missing = ms; gRestore.skipped = sk;
   }
-  if (gRestoreCancel) { restoreFinish(RESTORE_CANCELLED); hTaskRestore = NULL; vTaskDelete(NULL); }
+  if (gRestoreCancel) { restoreFinish(RESTORE_CANCELLED); return; }
 
   // 5. Home the wall so every reel re-homes against its restored calibration.
   gRestore.state = RESTORE_HOMING;
@@ -480,6 +499,10 @@ static void taskRestore(void* pv) {
 
   // 6. Done -- the lock releases here.
   restoreFinish(RESTORE_DONE);
+}
+
+static void taskRestore(void* pv) {
+  restoreRun();                 // everything it allocated is gone by the time it returns
   hTaskRestore = NULL;
   vTaskDelete(NULL);
 }
@@ -495,9 +518,14 @@ bool restoreWriteSnapshot(const char* path, volatile int* done, volatile int* to
                           volatile bool* abort) {
   if (!sfFsReady) { strlcpy(err, "no filesystem", errLen); return false; }
   // The module list is copied first: the sweep below takes seconds and must not hold the lock.
-  // static, not on the stack: MAX_MODULES entries are several KB and the soak task that calls
-  // this has 4 KB. Only one snapshot ever runs at a time (the soak holds the bus).
-  static struct { uint8_t id; char sn[21]; int fw; } list[MAX_MODULES];
+  // Not on the stack -- MAX_MODULES entries are 7 KB and the soak task that calls this has 4 KB
+  // -- and not a static either: 7 KB of internal RAM held permanently for something that runs
+  // during a backup is 7 KB the WiFi stack does not have during a firmware upload. PSRAM, on
+  // first use. Only one snapshot ever runs at a time (the soak holds the bus).
+  struct SnapEntry { uint8_t id; char sn[21]; int fw; };
+  static SnapEntry* list = NULL;
+  if (!list) list = (SnapEntry*) psramAlloc("backup module list", sizeof(SnapEntry) * MAX_MODULES);
+  if (!list) { strlcpy(err, "out of memory", errLen); return false; }
   int n = 0;
   if (sfMutex) xSemaphoreTake(sfMutex, portMAX_DELAY);
   for (int i = 0; i < sfModuleCount && n < MAX_MODULES; i++) {
@@ -535,10 +563,12 @@ bool restoreWriteSnapshot(const char* path, volatile int* done, volatile int* to
     else               snprintf(frame, sizeof(frame), "m%dA\n", list[i].id);
     if (list[i].fw == 0 || list[i].fw >= 25)
       got = sfReadDump(list[i].id, frame, 1400, dump, sizeof(dump), NULL, abort);
+    const bool aFailed = !got;
     if (!got) {                                  // 'A' refused or lost: the shorter read
       if (list[i].sn[0] && list[i].fw >= 15) snprintf(frame, sizeof(frame), "mXD%s\n", list[i].sn);
       else                                   snprintf(frame, sizeof(frame), "m%dd\n", list[i].id);
       got = sfReadDump(list[i].id, frame, 1400, dump, sizeof(dump), NULL, abort);
+      if (got && aFailed) incidentLog(list[i].id, 'F', 'A', 0);   // length, not silence
     }
     if (got && dump[0]) {
       // Only an 'A' read carries a flap set, and only a self-consistent one is written --
@@ -560,7 +590,10 @@ bool restoreWriteSnapshot(const char* path, volatile int* done, volatile int* to
       printf("[SOAK] snapshot: module %d did not answer -- left out of %s\n", (int)list[i].id, path);
     }
     if (done) *done = i + 1;
-    wdgWebMs = millis();
+    wdgWebFeed();
+    // Keep the soak's hold alive while its snapshot is read: a module that fails both long
+    // reads costs ~6 s, and one 180 s lease did not outlast thirty of those.
+    if (gSoak.active) busHold("soak", BUS_BUSY, 180000UL);
     vTaskDelay(pdMS_TO_TICKS(120));
     if (abort && *abort) {                      // cancelled: stop here, keep what was read
       printf("[SOAK] snapshot cancelled after %d of %d module(s)\n", i + 1, n);
@@ -582,6 +615,12 @@ bool restoreWriteSnapshot(const char* path, volatile int* done, volatile int* to
 bool restoreStartFrom(const char* path, unsigned long delayMs, const char* trigger,
                       char* err, size_t errLen) {
   if (restoreBusy() || hTaskRestore) { strlcpy(err, "restore already running", errLen); return false; }
+  // Nor on top of anything else that owns the bus. A restore captures ANY dump reply as its
+  // verify answer; started during a soak, a probe, a self-test or a module update it reads
+  // their replies as its own and interleaves EEPROM writes with theirs.
+  if (gSoak.active || gProbe.active || gDiag.jobActive || gCalib.jobActive || modfwRunning()) {
+    strlcpy(err, "the bus is busy with something else", errLen); return false;
+  }
   RestoreFileInfo info;
   if (!restoreValidateFile(path, &info, err, errLen)) return false;
   if (info.modules == 0) { strlcpy(err, "that backup is unusable", errLen); return false; }
@@ -610,6 +649,12 @@ bool restoreStartFrom(const char* path, unsigned long delayMs, const char* trigg
 
 bool restoreStart(unsigned long delayMs, const char* trigger, char* err, size_t errLen) {
   if (restoreBusy() || hTaskRestore) { strlcpy(err, "restore already running", errLen); return false; }
+  // Nor on top of anything else that owns the bus. A restore captures ANY dump reply as its
+  // verify answer; started during a soak, a probe, a self-test or a module update it reads
+  // their replies as its own and interleaves EEPROM writes with theirs.
+  if (gSoak.active || gProbe.active || gDiag.jobActive || gCalib.jobActive || modfwRunning()) {
+    strlcpy(err, "the bus is busy with something else", errLen); return false;
+  }
   if (!gRestoreFile.exists || gRestoreFile.modules == 0) {
     strlcpy(err, gRestoreFile.exists ? "stored backup is unusable" : "no backup stored", errLen);
     return false;

@@ -19,8 +19,18 @@ The firmware runs five FreeRTOS tasks plus `loop()`:
 
 Shared state is protected by four mutexes: `sfMutex` (module registry),
 `msgMutex` (RS-485 ring buffer), `timeMutex` (time formatting — newlib time
-functions are not thread-safe), and `mqttQMutex` (MQTT outbound queue). Only
-`taskNetwork` ever calls `mqtt.publish()`.
+functions are not thread-safe), and `mqttQMutex` (MQTT outbound queue).
+
+**Only `taskNetwork` touches the MQTT client — including to ask whether it is connected**
+(v4.4). `PubSubClient::connected()` is not a query: it `recv()`s on the socket and, if the
+link has dropped, `stop()`s the client in the calling task. Every other task reads
+`gMqttUp`, and asks for a disconnect or a change of broker by setting `gMqttDropReq` /
+`gMqttReconfigReq`. The outbound queue's lock is held to copy one item out, never across
+the publish.
+
+`RS485` and `Network` have 8 KB stacks, `Web` 8 KB, the job tasks 6–8 KB. A monitor record
+(`RS485Msg`) is 1.1 KB and is built on the sender's stack, so no task that can transmit
+should have less than 6 KB.
 
 ## Watchdog
 
@@ -41,6 +51,15 @@ Two boot-time guards prevent false reboots during startup:
   future" (`wdg > now`, possible only from transient boot-time skew) as healthy,
   rather than letting the unsigned subtraction underflow to a huge value that
   would look like a 49-day stall.
+
+**Only the web task feeds the web heartbeat** (v4.4). The reply-wait helpers are shared with
+the soak, probe, restore and module-update tasks, and used to stamp `wdgWebMs` wherever they
+ran, which hid a wedged web task for as long as a job was running. They call `wdgWebFeed()`,
+which does nothing off `taskWeb`.
+
+An update in flight (`gOtaInProgress`) suspends both reboots on purpose. Every chunk stamps
+`gOtaProgressMs`, and three minutes without one clears the flag, so a stalled upload cannot
+leave the board without its watchdog.
 
 ## Web server: why the synchronous `WebServer`, not `ESPAsyncWebServer`
 
@@ -468,3 +487,183 @@ symptom was easy to misread as the well-known "receive buffers pile up" story, w
 release notes had blamed for two versions. The header now goes on the response, once. Rule
 for every chunked callback (upload or raw): no `sendHeader()`, no allocation that outlives
 the chunk. A full image now uploads in ~10 s with ~80 KB of heap free throughout.
+
+## Symbol flaps: a heart is not a letter (v4.1)
+
+Some reels are printed with symbols -- a heart, arrows, a smiley -- and the wire has no way to
+say so. A module carries exactly one byte per flap and is addressed BY that byte, and those
+symbols have no Windows-1252 code. The protocol already had this problem twice and solved it
+the same way both times: the seven colour flaps travel as `r o y g b p w`, and the classic
+reel's double-quote flap travels as `q`. So each symbol gets a reserved lowercase letter too.
+
+| Letter | Symbol | Name | Stand-in | Also accepted |
+|---|---|---|---|---|
+| `h` | ♥ | heart | `*` | ❤ |
+| `u` | ↑ | up | `^` | ⬆ |
+| `d` | ↓ | down | `V` | ⬇ |
+| `s` | ☺ | smiley | `:` | 🙂 😊 😀 |
+| `l` | ← | left | `<` | ⬅ |
+| `t` | → | right | `>` | ➡ |
+
+Three rules keep the letters from leaking, and all three live in [`src/flapsym.h`](src/flapsym.h)
+so the firmware and the native tests compile the same table:
+
+1. **A typed letter is never a symbol.** `h` still folds to `H` on every text path. Every
+   existing client sends lowercase text and relies on that, so the alternative was silently
+   turning someone's "hello" into "♥ELLO" -- which is exactly what would happen on the Matrix
+   Gateway if its one-byte path ever adopted these letters. It must not.
+2. **A symbol exists only where it is printed.** `utf8ToFlap()` decodes ♥ to an internal code
+   (0x01-0x06, which `isFlapByte()` rejects), and the code is resolved against the reel of the
+   module it is going to: the letter if that reel carries it, the stand-in if it carries that,
+   otherwise a blank. One glyph is still one module, so text never shifts around a symbol a
+   module cannot show. `rs485Send()` refuses a frame carrying an unresolved code outright.
+3. **The letters never leave the gateway as letters.** `charset.union`/`common` report the
+   symbols, `pictographs` names them, `spelling` gives the byte for each, and
+   `/api/display/state` and `/api/flap/modules` report what the flap SHOWS. Only `sets[].chars`
+   stays raw, because flap-INDEX addressing works against the bytes the module stores.
+
+A broadcast is the interesting case, because a frame carries one byte and a request for a heart
+has only one byte to choose: `m*-h`. That is the heart on the reels printed with one, and on
+every other module it is a byte its reel does not contain -- which makes the module home, the
+very silence this feature exists to avoid. So `sfSendChar()` resolves the request for every
+provisioned module first and sends a single `m*-h` only when every reel is known and they all
+agree; otherwise a frame each (`m14-h`, `m13-*`, ...), which is what a wall of mixed reels needs
+anyway.
+
+Module firmware needs no change: a v31+ module stores and reports whatever bytes its flap set
+holds, and `m<id>-<byte>` has always accepted any byte.
+
+## Where the heap for a browser update comes from (v4.1.1)
+
+The 3.12 note above is about an upload that leaked heap per chunk. This one is about an upload
+that had no heap to begin with, and it is worth separating: the symptom is identical -- a
+connection that dies in the last third of a 1.5 MB image, min-free heap in the hundreds of bytes
+-- but nothing in the upload path was wrong.
+
+Two function-local statics were holding 53 KB of internal RAM permanently:
+
+```c
+void sfModulesSave() { static PersistedModule recs[MAX_MODULES]; ... }   // 26,520 B
+void sfModulesLoad() { static PersistedModule recs[MAX_MODULES]; ... }   // 26,520 B
+```
+
+Both were `static` for the right reason -- 26 KB is not going on a 4 KB task stack -- but
+`static` put them in DRAM for the life of the board, for something that runs on a debounce when
+the registry changes. `restoreWriteSnapshot()` held another 7 KB the same way. Together that is
+60 KB of the ~155 KB this board has, reserved against a few milliseconds of work a minute.
+
+It only ever showed up during a web upload, because that is the one operation that needs a large
+transient allocation: lwIP queues incoming packets while each chunk goes to flash, and the queue
+is sized by what the heap will give it. With 67 KB free at boot the low-water during a full-size
+image was **5,480 bytes**; with the buffers in PSRAM it is **98,748**.
+
+The rule this leaves: on this board a `static` buffer of more than a few KB belongs in PSRAM
+unless something touches it per frame. `psramAlloc()` allocates it on first use and says so in
+the boot log, and PSRAM has 8 MB against internal RAM's 320 KB. The same reasoning is already
+written on the capabilities scratch (`capScratch`), the monitor ring, the MQTT queue and the
+module registry -- these three were simply missed, because a function-local `static` does not
+look like a global.
+
+## Renaming mDNS at runtime: ArduinoOTA.setHostname() only works once (v4.2)
+
+The network name became a setting, and a setting that needs a reboot to take effect is a
+setting people get wrong twice. Applying it live looks like three calls -- end the responder,
+set the new hostname, start it again -- and the middle one is a trap:
+
+```c
+ArduinoOTAClass &ArduinoOTAClass::setHostname(const char *hostname) {
+  if (!_initialized && !_hostname.length()) {   // <-- both, and _hostname is sticky
+    _hostname = hostname;
+  }
+  return *this;
+}
+```
+
+After the first call at boot `_hostname.length()` is non-zero for ever, so every later
+`setHostname()` returns silently having done nothing, and `ArduinoOTA.begin()` re-announces the
+OLD name. The rename reported success, the dashboard showed the new name, `/api/config` agreed
+-- and the only thing that disagreed was the network, where `dns-sd -B _arduino._tcp` kept
+showing the previous one. Nothing in the firmware was in a position to notice.
+
+So the gateway owns its mDNS registration instead of delegating it: `ArduinoOTA.setMdnsEnabled(false)`
+keeps the OTA library to its UDP listener, and `otaStartMdns()` does the three things the
+library would have done -- `MDNS.begin(name)` for the host, `MDNS.enableArduino(3232, auth)` for
+the `_arduino._tcp` record espota discovers, `MDNS.addService("http","tcp",80)` for the web UI.
+A rename is then `MDNS.end()` plus that function, and it is on the wire in under a second
+(verified with `dns-sd` watching: the old instance removed, the new one added, uptime unchanged).
+
+The general lesson is about verification, not about this library: a setter that validates
+nothing and returns `*this` for chaining can only be confirmed by looking at what it was
+supposed to change -- here, the multicast traffic, not the gateway's own idea of its name.
+
+## A reply that got longer: the v5 bootloader's status frame (v4.3)
+
+Module firmware v36 brought a second driver board, and with it two replies that grew a field.
+One was handled by a parser that already tolerated a tail (`v` splits on `:` and ignores what
+it does not know). The other was not:
+
+```c
+if (n != 41) return;        // a bootloader status frame is 41 bytes
+```
+
+The v5 board's bootloader is version 2 and appends the board after the page bitmap, so its
+status frame is 42. The gateway dropped it on the length check — before the CRC, which was
+perfectly good — and a module that had answered was indistinguishable from one that never did.
+Every bus update of a v5 module therefore failed inside a second with "no module answered in
+its bootloader", which reads like a dead module rather than a protocol mismatch.
+
+Two things worth keeping from it:
+
+- **An exact-length check is a version check in disguise.** The frame carries its own CRC, so
+  the length was never what made it trustworthy. `n != 41 && n != 42` is the fix; the shape to
+  prefer is "at least the fields I need, and the CRC decides", which is what the `m`-protocol
+  parsers already do.
+- **The symptom pointed away from the cause.** The module was in its bootloader, answering, and
+  the bus monitor showed its reply going past — the frame is in the ring either way, since the
+  monitor records what arrives and this parser runs after it. Reading the trace rather than the
+  error message is what found it; the error message was about the gateway's own expectations.
+
+The board itself is checked twice before an image is sent: once from the registry, which is how
+the targets are chosen, and again from the bootloader's own status frame, which is the
+authority — a registry entry can be hours old, and the module in front of you cannot be.
+
+## What "the dashboard is slow" turned out to be (v4.4)
+
+Five causes, none of them in the dashboard, each invisible from outside because a
+one-connection server makes every cause look the same: every request is slow.
+
+| Cause | Cost | Fix |
+|---|---|---|
+| WiFi modem sleep (the Arduino default) | a beacon interval per round trip | `WiFi.setSleep(false)` |
+| `WIFI_FAST_SCAN` joins the first AP heard, not the strongest | 40 ms vs 465 ms ping, by the luck of the boot | all-channel scan, sort by signal |
+| `ESP.getSketchSize()` in `/api/status` | SHA-256 of the image, ~170 ms per poll | measured once |
+| `WebServer::sendContent()` = 3 socket writes per chunk | 15 runt segments for a module list | chunks coalesced (`HealWebServer`, web.h) |
+| The dashboard polled every pane, always | ~3 requests a second per open tab | poll the visible pane, nothing when hidden |
+
+Things worth keeping:
+
+- **Measure inside.** `GET /api/perf` times every request in a middleware and attributes it
+  to an endpoint and a client. Handler time of 4 ms against a request time of 150 ms is the
+  link; the reverse is the firmware. Without it the three were indistinguishable.
+- **A request costs two round trips, whatever the handler does.** The server closes each
+  connection, so SYN/SYN-ACK and request/response are both paid every time. On a link with
+  a 40 ms round trip, 80–120 ms per request is the floor.
+- **A response larger than ~2.8 KB costs a round trip per ~2.8 KB.** `NetworkClient::write()`
+  waits in `select()` for the socket to be writable, and lwIP calls a socket writable only
+  while more than half its 5.7 KB send buffer is free. So the 49 KB page is ~17 round trips
+  of the link, which is why it is served compressed, and why a JSON response that fits one
+  flush is worth keeping that way.
+- **`NetworkClient::write()` does not honour the connection timeout.** It retries for 10 s
+  and leaves the socket open, so a peer that stopped reading costs 10 s per write. The chunk
+  writer treats one short write as the end of the response.
+- **TCP_NODELAY alone made it worse.** With Nagle off and three writes per chunk, the old
+  173 KB page went out as ~500 runt packets. Coalescing first, then NODELAY.
+
+### The single reply slot
+
+`gDump` and `gDiag.q` are one-slot mailboxes: arm with an id, send, wait for `ts`. They were
+written for the web task alone and are now also used by the soak, probe and restore tasks.
+Two rules keep that safe: the waiter accepts a reply only if `gotId` is the id it asked
+(the restore, which asks by serial, uses `SF_WAIT_ANY` and owns the bus exclusively), and the
+web handlers that use the slot answer 409 while a soak or probe is running.
+

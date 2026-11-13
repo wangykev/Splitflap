@@ -20,7 +20,9 @@ def test_code_table_matches_the_published_one():
     assert vb.CODE_TO_CHAR[27] == "1" and vb.CODE_TO_CHAR[35] == "9"
     assert vb.CODE_TO_CHAR[36] == "0"          # zero comes AFTER the nines
     assert vb.CODE_TO_CHAR[37] == "!" and vb.CODE_TO_CHAR[60] == "?"
-    assert vb.CODE_TO_CHAR[62] == "°"
+    # Flap 62 is a degree on a classic Flagship but a heart on a Note; we present a Note, so
+    # it decodes to ♥ (the reel/degrade decides whether the wall can actually show it).
+    assert vb.CODE_TO_CHAR[62] == "♥"
     # Color chips -> the firmware's COLOR FLAPS, each its own codepoint rather than the
     # letter that used to stand in for it. Violet is `p`. Spelling a chip as `r` was only
     # ever safe because no wall could show a lowercase letter; one now can.
@@ -339,3 +341,133 @@ def test_the_generated_key_survives_a_restart(tmp_path):
     s.set("vestaboard_api_key", "sekrit-key")
 
     assert PluginSettings(tmp_path).get("vestaboard_api_key") == "sekrit-key"
+
+
+# --- the 7000 mirror port (so ha-vestaboard, which hardcodes 7000, can reach us) ------
+class TestMirrorPort:
+    """`vestaboard_mirror_port` decides the second port app/__main__ binds for the
+    Vestaboard Local API. The ha-vestaboard HA integration always talks to 7000 and
+    cannot be given another port, so this defaults there regardless of the main port."""
+
+    def test_defaults_to_7000_when_unset(self, monkeypatch):
+        from app.config import vestaboard_mirror_port
+        monkeypatch.delenv("COMPANION_VESTABOARD_PORT", raising=False)
+        assert vestaboard_mirror_port(8000) == 7000
+
+    def test_env_overrides_the_port(self, monkeypatch):
+        from app.config import vestaboard_mirror_port
+        monkeypatch.setenv("COMPANION_VESTABOARD_PORT", "7777")
+        assert vestaboard_mirror_port(8000) == 7777
+
+    def test_zero_disables_the_mirror(self, monkeypatch):
+        from app.config import vestaboard_mirror_port
+        monkeypatch.setenv("COMPANION_VESTABOARD_PORT", "0")
+        assert vestaboard_mirror_port(8000) is None
+
+    def test_a_value_equal_to_the_primary_disables_it(self, monkeypatch):
+        """No point binding the same port twice (and it would fail to bind)."""
+        from app.config import vestaboard_mirror_port
+        monkeypatch.setenv("COMPANION_VESTABOARD_PORT", "8000")
+        assert vestaboard_mirror_port(8000) is None
+
+    def test_a_non_numeric_value_disables_it_rather_than_crashing(self, monkeypatch):
+        from app.config import vestaboard_mirror_port
+        monkeypatch.setenv("COMPANION_VESTABOARD_PORT", "nope")
+        assert vestaboard_mirror_port(8000) is None
+
+    def test_blank_falls_back_to_the_default(self, monkeypatch):
+        from app.config import vestaboard_mirror_port
+        monkeypatch.setenv("COMPANION_VESTABOARD_PORT", "   ")
+        assert vestaboard_mirror_port(8000) == 7000
+
+
+# --- reads present a STANDARD board shape (ha-vestaboard only knows 3x15 / 6x22) ------
+class TestEncodeBoardShape:
+    """A 1x15 (or any non-standard) wall must READ as a Note 3x15 by default — else a
+    Vestaboard client measures the matrix, finds no model that size, and fails setup with
+    "Unexpected error". The write path still targets the real wall, so this is read-only."""
+
+    def test_present_model_defaults_to_note(self):
+        assert vb.present_model(1, 15) == (3, 15)   # the reporter's 1x15 strip
+        assert vb.present_model(3, 15) == (3, 15)
+        assert vb.present_model(2, 10) == (3, 15)
+
+    def test_present_model_escalates_to_flagship_when_larger_than_a_note(self):
+        assert vb.present_model(6, 22) == (6, 22)
+        assert vb.present_model(4, 15) == (6, 22)   # too many rows for a Note
+        assert vb.present_model(1, 22) == (6, 22)   # too many columns for a Note
+        assert vb.present_model(10, 40) == (6, 22)  # bigger than a Flagship -> Flagship (crop)
+
+    def test_a_1x15_wall_reads_as_a_3x15_note(self):
+        chars = list("HELLO WORLD    ")   # 15 cells, one row
+        assert len(chars) == 15
+        m = vb.encode_board(chars, 1, 15)
+        assert len(m) == 3 and all(len(row) == 15 for row in m)   # a Note, not a 1x15
+        # the content lands on the middle row; the others are blank
+        assert m[0] == [vb.BLANK] * 15
+        assert m[2] == [vb.BLANK] * 15
+        assert any(code != vb.BLANK for code in m[1])
+        # and it decodes back to the original word
+        assert vb.decode(m)[1].strip() == "HELLO WORLD"
+
+    def test_a_3x15_wall_round_trips_unchanged(self):
+        chars = list("A" * 45)
+        assert vb.encode_board(chars, 3, 15) == vb.encode(chars, 3, 15)
+
+    def test_a_6x22_wall_reports_as_a_flagship_unchanged(self):
+        chars = list("B" * (6 * 22))
+        out = vb.encode_board(chars, 6, 22)
+        assert len(out) == 6 and all(len(r) == 22 for r in out)
+        assert out == vb.encode(chars, 6, 22)
+
+
+# --- the heart flap (code 62): a Note's heart, a classic Flagship's degree ------------
+class TestHeartFlap:
+    """Vestaboard flap 62 is one flap with two prints: a degree sign on a classic Flagship,
+    a heart on a Note (and newer Flagships). We advertise a Note, so 62 <-> ♥, while a wall
+    degree still reads back to 62 so it isn't lost to a blank."""
+
+    HEART = "♥"
+    DEGREE = "°"
+
+    def test_code_62_decodes_to_a_heart(self):
+        assert vb.decode([[62]]) == [self.HEART]
+
+    def test_a_heart_on_the_wall_reads_back_as_code_62(self):
+        assert vb.encode([self.HEART], 1, 1) == [[62]]
+
+    def test_the_heart_round_trips(self):
+        assert vb.decode(vb.encode([self.HEART], 1, 1)) == [self.HEART]
+
+    def test_a_wall_degree_also_reads_back_as_62_not_a_blank(self):
+        """A ° on the wall is the same physical Vestaboard flap as the heart, so it must
+        encode to 62 rather than falling through to a blank."""
+        assert vb.encode([self.DEGREE], 1, 1) == [[62]]
+
+    def test_incoming_heart_lands_as_the_pictograph_a_reel_can_degrade(self):
+        """decode_request turns an incoming heart into the ♥ pictograph; a reel that lacks
+        it is renderer.degrade()'s job (♥ -> *), not the codec's."""
+        from app import renderer
+
+        page, _ = vb.decode_request([[62]], 1, 1)
+        assert page == self.HEART
+
+        class _NoHeartReel:
+            def knows_charset(self): return True
+            def can_show(self, ch): return ch != "♥"   # every flap except the heart
+        assert renderer.degrade(self.HEART, _NoHeartReel()) == "*"   # the documented stand-in
+
+
+def test_code_62_reaches_a_heart_flap_and_reads_back_as_62():
+    """On a wall whose reel has the heart, Vestaboard code 62 -> ♥ -> the gateway byte `h`,
+    and the heart on the wall reads back as 62 (SYMBOL-FLAPS C8)."""
+    from app import device, renderer
+    assert vb.decode([[62]]) == ["♥"]                 # 62 decodes to the heart
+    reel = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?'-♥"
+    caps = device.from_capabilities({
+        "features": ["colors", "symbols"],
+        "charset": {"uniform": True, "common": reel, "union": reel},
+        "spelling": {"♥": "h"}, "pictographs": ["heart"],
+    })
+    assert renderer.for_legacy("♥", caps) == "h"      # reaches the heart flap byte
+    assert vb.encode(["♥"], 1, 1) == [[62]]           # and reads back as 62

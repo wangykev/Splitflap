@@ -448,6 +448,15 @@ function cmpBuild() {
     });
     sw.appendChild(b);
   });
+  // Symbol flaps the wall can show (♥ ↑ …), from /api/grid. Each inserts its character; the
+  // grid/preview already render a symbol as itself (it is not a colour).
+  (GRID.symbols || []).forEach((sym) => {
+    const b = el("button", "swatch swatch-symbol");
+    b.textContent = sym.ch;
+    b.title = t("Symbol %s", sym.name);
+    b.addEventListener("click", () => { $("cmpCatcher").focus(); cmpSet(sym.ch); });
+    sw.appendChild(b);
+  });
 
   // Style + speed default to the display's globals; "" means "let the server decide".
   const sel = $("cmpStyle");
@@ -1579,6 +1588,14 @@ function openMessageEditor(entry, onDone) {
     b.addEventListener("click", () => { catcher.focus(); setv(blank ? "" : emoji); });
     sw.appendChild(b);
   });
+  // Symbol flaps the wall can show (♥ ↑ …), same palette as Compose.
+  (grid.symbols || []).forEach((sym) => {
+    const b = el("button", "swatch swatch-symbol");
+    b.textContent = sym.ch;
+    b.title = t("Symbol %s", sym.name);
+    b.addEventListener("click", () => { catcher.focus(); setv(sym.ch); });
+    sw.appendChild(b);
+  });
   wrap.appendChild(sw);
 
   const ctlB = el("div", "controls compose-controls");
@@ -2221,15 +2238,26 @@ async function openDevMenu() {
       api: "/api/dev/vestaboard",
       title: t("Vestaboard API"),
       offText: t("Off. Turn on to accept Vestaboard Local API calls (Home Assistant, scripts) at /local-api/message — this display then answers like a Vestaboard."),
-      lines: (d) => [
+      lines: (d) => {
         // d.url is the address a client OUTSIDE the browser must use. As an add-on our
         // own origin is Home Assistant's (ingress), which does not reach this endpoint.
-        `POST ${d.url || `${location.origin}${d.path}`}`,
-        `X-Vestaboard-Local-Api-Key: ${d.key}`,
-        d.env_key
-          ? t("Key pinned by COMPANION_VESTABOARD_KEY.")
-          : t("Key generated and stored with your settings. Pin your own with COMPANION_VESTABOARD_KEY."),
-      ],
+        const base = d.url || `${location.origin}${d.path}`;
+        let host = "";
+        try { host = new URL(base).hostname; } catch (e) { /* non-absolute base */ }
+        return [
+          `POST ${base}`,
+          `X-Vestaboard-Local-Api-Key: ${d.key}`,
+          // The ha-vestaboard HACS integration can't be given a URL or port — it always
+          // uses 7000, which the add-on now serves too (d.vb_port). Scripts/rest_commands
+          // still use the POST line above.
+          ...(d.vb_port ? [host
+            ? t("ha-vestaboard integration (HACS): set Host to %s and leave the port — it always uses 7000, served here too. No URL.", host)
+            : t("ha-vestaboard integration (HACS): enter just the host — it always uses port 7000, served here too. No URL.")] : []),
+          d.env_key
+            ? t("Key pinned by COMPANION_VESTABOARD_KEY.")
+            : t("Key generated and stored with your settings. Pin your own with COMPANION_VESTABOARD_KEY."),
+        ];
+      },
     }));
 
     wrap.appendChild(devToggle({

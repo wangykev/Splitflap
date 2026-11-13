@@ -5,6 +5,8 @@
 //
 // Source map:
 //   common.h    libraries, board config macros, shared structs, global externs
+//   flapsym.h   the colour and symbol flap codes, and how a request resolves against a reel
+//   charset.*   UTF-8 <-> flap-byte transcoding (Windows-1252), and what a flap SHOWS
 //   globals.cpp single definition site for every shared/extern global
 //   config.*    runtime configuration (GwConfig) persisted in NVS
 //   rtc.*       PCF85063 real-time clock + NTP sync
@@ -32,10 +34,12 @@
 #include "bus.h"
 #include "incidents.h"
 #include "trace.h"
+#include "modfw.h"
 #include "restore.h"
 #include "mqtt.h"
 #include "ota.h"
 #include "web.h"
+#include "perf.h"
 #include "tasks.h"
 
 #endif // SFGW_GATEWAY_H

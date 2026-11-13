@@ -3,6 +3,41 @@
 Home Assistant shows this when an update is available. Newest first; the version headings
 have to match the add-on's `version`, or the update notice comes up blank.
 
+## 2.11.0
+
+- **Symbol flaps on physical reels.** A physical wall can now show the symbol flaps `♥ ↑ ↓ ☺ ← →`
+  where its reel carries them — the gateway (firmware 4.1.0+) reports which byte each symbol uses
+  and the companion sends it, instead of always degrading to a stand-in. A module without the flap
+  still falls back (`♥ → *`), and older gateways/Matrix walls are unchanged. Compose and the
+  playlist message editor gain a palette of the symbols the wall can show; the emoji spellings
+  (❤, ⬆, 🙂 …) are accepted as input. The down-arrow stand-in is now a capital `V` (a lowercase `v`
+  re-homed the module), and a double-quote flap is driven correctly on reels that have one.
+
+## 2.10.26
+
+- **Vestaboard heart flap (code 62).** The Vestaboard flap that is a degree sign on a classic
+  Flagship is a **heart** on a Note — and we present as a Note. A heart sent from Home Assistant now
+  lands as a heart (`♥`) on the wall instead of a degree sign, and a heart on the wall reads back as
+  a heart in the integration. If your reel has no heart flap it degrades to `*` like any other
+  pictograph; a degree sign on the wall still round-trips too.
+
+## 2.10.25
+
+- **Vestaboard Local API reads now present a standard board shape.** A Vestaboard client (the
+  ha-vestaboard integration) only recognises a Note (3×15) or a Flagship (6×22) and errors on any
+  other size — so a wall that wasn't one of those (e.g. a 1×15 strip) failed setup with "Unexpected
+  error". Reads now report a **Note (3×15)** by default (a **Flagship 6×22** for larger walls), with
+  the wall's content centred into it; the write path still drives the real wall. Walls that already
+  are 3×15 or 6×22 are unchanged.
+
+## 2.10.24
+
+- **Vestaboard Local API now also answers on port 7000.** The ha-vestaboard Home Assistant
+  integration (and real Vestaboards) always talk to port 7000 with no way to override it, so a
+  companion on 8000 was unreachable to them — the config flow reported "Invalid hostname or IP
+  address." The add-on now serves the Local API on 7000 as well as 8000. Point the integration at
+  just the Home Assistant host (no port, no URL); scripts and rest_commands keep using 8000.
+
 ## 2.10.23
 
 - **Date app (flap, German).** The German date drops the space after the day's ordinal dot —

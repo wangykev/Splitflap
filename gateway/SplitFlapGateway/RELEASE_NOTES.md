@@ -1,5 +1,650 @@
 # Split-Flap Gateway — Release Notes
 
+## v4.4.0 — 2026-11-10
+
+**The dashboard was slow, and almost none of it was the dashboard. This release is what a
+profiler and a top-to-bottom review for speed and stability turned up.**
+
+Measured from a wired machine against the same wall, before and after:
+
+| | 4.3.0 | 4.4.0 |
+|---|---|---|
+| Time inside the gateway for `/api/status` | 170–290 ms | 5 ms |
+| Time inside the gateway for `/api/flap/modules` (14 modules) | 320 ms avg, 1.7 s worst | 4 ms |
+| Dashboard page | 173 KB, 1.8–6.4 s | 49 KB, typically 1.1–1.4 s |
+| Ping to the gateway, average | 113–134 ms | 35–95 ms (median 30–50) |
+
+(A module list longer than about 2.7 KB — sixteen modules — needs a second packet and so one
+more round trip of the link: 46 ms here.)
+
+What is left is the radio: every request is a new connection, so it costs two round trips, and
+on a busy 2.4 GHz channel a round trip is tens of milliseconds whatever the firmware does.
+`GET /api/perf` (below) tells the two apart.
+
+### Fixed — why it was slow
+
+- **The radio was asleep between beacons.** The Arduino default is modem sleep, so every
+  packet *to* the gateway waited at the access point for the next beacon. Modem sleep is now
+  off, permanently; the board is mains powered.
+- **The gateway joined whichever access point answered first, not the strongest.** On a
+  network with several, each reboot was a coin toss, and a station does not move afterwards.
+  Same wall, same hour, one reboot apart: ping median 40 ms on one access point, 465 ms with
+  10 % loss on another. It now scans every channel and joins the strongest signal.
+- **`/api/status` hashed the whole firmware image on every call.** `ESP.getSketchSize()` is
+  not a lookup; it verifies the running image. About 170 ms, every three seconds, per open
+  dashboard, on a server that handles one request at a time. Measured once now.
+- **Every streamed response went out as runt packets.** One chunk was three socket writes;
+  with five chunks in a module list that was fifteen small segments, each waiting on the
+  last. Chunks are now coalesced into full segments.
+- **The page is served compressed**, in one write, and its version footer is filled in by
+  the page itself.
+- **The dashboard polled everything, always.** The monitor was polled 1.75 times a second
+  on every tab, and a hidden browser tab kept going. A pane now polls only while it is the
+  one on screen, and a hidden tab polls nothing.
+- **A bus task walked the whole module registry every 5 ms** once every reel was known, for
+  ever. Once per two seconds, as intended.
+- **One module with an unknown reel turned every broadcast character into a frame per
+  module.** A wall with a single module that never reported its flap set (any v32 module
+  with a full map) paid N frames for every `m*-A`. One frame again whenever every module
+  would be sent the same byte.
+
+### Fixed — stability
+
+- **A frame addressed to id 255 could restart the gateway.** 255 is the registry's own
+  marker for "no id", and a line starting `m255` went on to compare against a missing
+  serial number. Ids above 254 are now rejected and counted, on both the reply and the
+  provisioning-ack paths. (`m300` was also being filed under module 44.)
+- **Pressing "Test" on a wrong MQTT port could restart the gateway.** Something that accepts
+  the connection and then says nothing held the web task in a loop that never yields, for
+  15 s; the task watchdog fires at 5. The test now gives up after 3 s. *(Checked against a
+  listener that accepts and stays silent: 3.2 s, no restart.)*
+- **A broker that stayed down took the gateway off WiFi every two and a half minutes.** Five
+  failed MQTT connections were read as "the network stack is wedged" and answered by
+  rejoining WiFi — which is rarely the cause and always costs the dashboard, the companion
+  and the API. It now takes a transport-level failure, five minutes with no web request
+  either, and at most one attempt per half hour.
+- **The MQTT client was used from three tasks.** Asking PubSubClient whether it is
+  connected can close the socket, in whatever task asked, while the network task is using
+  it. Only the network task touches the client now; everything else reads a flag or leaves
+  a request.
+- **A slow broker stalled the bus task and lost the frames it was stalling for.** The
+  outbound queue's lock was held across each publish. It is held only to copy one item out.
+  The same loop now feeds its own watchdog, so three slow publishes are no longer a
+  "network task stalled" restart.
+- **Home Assistant never saw the Maintenance switch or eleven of the diagnostic sensors.**
+  Their discovery topics are 48–53 characters and the queue stored 47. Discovery is also
+  retained now, as it was always meant to be, so the entities survive a Home Assistant
+  restart.
+- **A module change made while the registry was being saved was lost**, until something else
+  changed. The dirty flag was cleared after the write instead of before it.
+- **A failed registry save replaced the good file.** Write results were ignored, so on a
+  full filesystem a short file was renamed over the registry and the next boot started with
+  no modules. A save is now checked before it replaces anything, an interrupted one is
+  finished at boot, and "Clear all" can no longer be undone by a save already in flight.
+- **A read from the dashboard during a soak or a probe could return another module's
+  EEPROM.** They share one reply slot. The wait now checks whose reply arrived, and
+  `/api/flap/dump`, `/api/flap/all`, `/api/flap/stats` and `/api/flap/version` answer
+  **409** while a test owns the bus.
+- **A restore could start on top of a soak, a probe, a self-test or a module update**, and
+  read their replies as its own. It is refused, as a module update already was.
+- **On a large wall the restore's hold on the bus ran out mid-run** (past roughly 57 fully
+  calibrated modules), letting content and background queries back in during EEPROM writes.
+  The hold is renewed per module; so is the soak's during its snapshot.
+- **Every restore leaked the parsed backup** — about 50 KB for a 64-module wall.
+- **The gateway could transmit into a module's reply.** The "is the bus quiet" check relied
+  on a marker that stops moving exactly when the bus task is the sender, or is waiting for
+  the sender. It now watches the UART itself.
+- **Two checksummed frames built at once could be sent as one garbled one.** The frame
+  buffer was filled before the transmit lock was taken.
+- **A client that stopped reading froze the server for ten seconds per write** — a phone
+  that slept mid-response cost 20 s on a module list, minutes on a long monitor backlog. One
+  failed write now ends that response.
+- **The web watchdog could not see a stuck web task during a soak, restore or module
+  update**: those tasks were feeding it. Only the web task does now.
+- **An update that stalled could leave the gateway "updating" for ever**, with MQTT off and
+  both safety restarts disabled. Three minutes without a chunk ends it.
+- **NTP was tried once per WiFi connection.** A time server unreachable at boot meant no
+  sync for the whole uptime, and changing the server in Settings did nothing until a reboot.
+  It syncs at once when the setting changes, and otherwise retries every 15 minutes.
+- **Text sent with a negative start address broadcast its first characters to every
+  module.** Characters that fall off the wall are dropped.
+- Two settings saved at the same moment could silently lose one of them; a bus trace line
+  could be garbled by a transmit on the other core; one monitor row could be torn and break
+  that poll; three reply waits were not safe across the 49-day clock rollover; a clock chip
+  reading month 0 indexed before a table.
+
+### Added
+
+- **`GET /api/perf`** — who is asking the web server for what, and what it costs: requests
+  and time per endpoint and per client address, time spent holding a connection that sent
+  nothing, the longest gap in each task's loop, and which endpoint was running when the
+  heap reached a new low. `?reset=1` starts a new window. When "the dashboard is slow",
+  this says whether it is a request, a client, or the link.
+- **`GET /api/status` carries the radio link**: `rssi`, `channel`, `bssid` and `ps` (0 means
+  the radio never sleeps).
+
+### Changed
+
+- **A JSON request body over 24 KB is refused with 413.** The largest legitimate one is
+  under 10 KB; firmware, backups and the companion's settings are streamed and unaffected.
+- **A batch that arrives while another is still being paced out queues behind it** instead
+  of interleaving with it, and a batch of more than 127 frames no longer sends the overflow
+  ahead of the rest.
+- The bus and network tasks have 8 KB stacks (were 6), and the probe 6 KB (was 4): the bus
+  task had 1.1 KB to spare at its deepest.
+- API version **3.3.0**.
+
+### Known, not changed
+
+- Handlers that wait for a module's reply (`/api/flap/all`, `/api/flap/dump`, diagnostics,
+  `/api/flap/text` on a long line) still hold the one-connection server while they wait —
+  up to a few seconds against a silent module. Moving them to jobs is a larger change.
+- A garbled frame on a wall without checksums can still create a registry entry for an id
+  that does not exist (ids 0–254).
+
+## v4.3.0 — 2026-11-09
+
+**There is a second driver board. The gateway can now see which one each module is — and will
+not send a module an image its board cannot run.**
+
+Module firmware **v36** brings a second driver board. The two differ in one thing: where the
+RS-485 transceiver is wired. The **v4** board (Adam's) has it on pins that are not the chip's
+USART, so the bus is bit-banged; the **v5** board puts it on USART0's alternate pins, so the
+bus is the hardware USART and the transceiver's driver-enable is handled by the USART itself.
+A module tells the two apart from a strap on `PC0` and **an image runs only on its own board**.
+
+### Added
+
+- **The Modules tab shows the board.** A module's card reads *FW: v36 · Board v5*, and the
+  info dialog has a **Driver Board** row. A module that does not report one is a v4, and the
+  dialog says why it is blank: v36 is the first firmware that reports a board, and the v5 board
+  has no firmware older than that.
+- **`GET /api/flap/modules` carries `board`** (0 = not reported), persisted across reboots --
+  only a version reply carries it, and the `A` dump the registry otherwise lives on does not.
+
+### Fixed
+
+- **An unprovisioned module that has left no longer sits in the list.** A module with no ID
+  advertises its serial every 10-15 seconds, unprompted, so silence from one IS evidence --
+  unlike a provisioned module, which only speaks when addressed and is therefore kept for ever.
+  One that has not advertised for **two minutes** is dropped, and comes straight back if it
+  starts again. On the wall here that cleared four cards for modules that had been provisioned
+  or unplugged, three minutes after the gateway restarted.
+- **A command-line update could reboot the board mid-image.** `espota` and the Arduino IDE got
+  none of the quiescing a browser upload has had since 3.12: MQTT kept its buffers, the station
+  kept dropping into modem sleep, and the watchdog supervisor did not know an update was running
+  -- so on a busy wall the upload tripped the task watchdog and the board restarted part way
+  through (`reset: TASK_WDT`, the image unwritten). Both doors now quiesce the same way. The
+  upload that had been failing finished on the next try.
+- **A bus update of a v5 module could not work.** The v5 board's bootloader is version 2 and
+  its status frame is 42 bytes, not 41: it appends the board after the page bitmap. The gateway
+  checked the length and dropped the frame, so a module that had answered looked like one that
+  never did, and every update of a v5 module failed within a second with *"no module answered
+  in its bootloader"*. It accepts both lengths now, and reads the board from the longer one.
+  *(Measured afterwards: module 14, a v5 board, took the v5 image in one pass, 240 pages,
+  49.3 s.)*
+
+### Changed
+
+- **An update sends each module only an image its board can run.** The stored image says which
+  board it is for -- the Module Firmware card reads *"Firmware v36 for board v5 is uploaded"* --
+  and a run skips the modules that are a different board, counting them in the status
+  (*"9 module(s) left out: another board"*). If none is left, the attempt is refused outright
+  rather than started. The bootloader's own answer is checked again before any page is sent, so
+  a stale registry cannot get a module the wrong image either.
+
+  A module that does not report a board is treated as a **v4**. That is a construction, not a
+  guess: every image a v5 board can run reports its board. The failure is deliberately
+  asymmetric -- a silent v5 module is skipped and says so, where the opposite mistake would
+  send an image the board cannot run and leave the module in its bootloader until the right one
+  arrives.
+
+- **A release now carries one image per board**, so a mixed wall takes two runs, one image
+  each. The documentation ([Bus Protocol](https://splitflap.iothing.net/docs/Bus-Protocol/),
+  [Updating modules over the bus](https://splitflap.iothing.net/docs/Module-Firmware-Updates/))
+  describes both boards and what each reply looks like.
+
+- **The persisted module registry gained a field**, so the file an older gateway wrote is
+  ignored once and rebuilt from the wall at the next roll call. Nothing is lost that the bus
+  cannot say again.
+
+## v4.2.0 — 2026-10-25
+
+**A name you choose, and a browser update with room to work.**
+
+### Added
+
+- **The gateway has a name, and it is `splitflap`.** It answers at
+  **http://splitflap.local** -- that is also the name `espota` and the Arduino IDE discover --
+  and **Settings ▸ Network Name** changes it to anything you like: lowercase letters, digits and
+  hyphens, up to 31 characters. The change applies at once, with no reboot: the old name leaves
+  the network and the new one is announced within a second, while anything already open keeps
+  working by IP. `GET /api/config` reports it as `mdnsName`, and
+  `POST /api/config/settings {"mdnsName":"hallway-wall"}` sets it, answering with the effective
+  name and URL. A blank value puts it back to `splitflap`.
+
+  **Two gateways on one network must not share a name.** Until now every board derived a unique
+  one from its chip id (`splitflap-gw-a1b2c3.local`), which never collided but which nobody
+  could remember or type -- and if you only have one wall, which is nearly everyone, the useful
+  name is the short one. If you run two, rename the second in Settings.
+
+  **What this changes on upgrade:** a board that updates to 4.2 stops answering to
+  `splitflap-gw-xxxxxx.local` and answers to `splitflap.local` instead. Bookmarks, an
+  `upload_port` in `platformio.ini`, a Home Assistant REST sensor or anything else pinned to the
+  old name needs the new one (or the IP, which has not changed).
+
+**The browser firmware update had almost no memory left to work with. It has 99 KB now.**
+
+Updating the gateway from its own web page failed for some people -- the upload would run to
+80-something percent and the connection would drop, or it would end in a bare "Update failed".
+Both symptoms have the same root, and it is not in the upload code: **60 KB of internal RAM was
+being held by two staging buffers that are used twice a minute at most.**
+
+`sfModulesSave()` and `sfModulesLoad()` each kept a `static PersistedModule recs[255]` -- 26 KB
+apiece -- so 53 KB of the gateway's ~155 KB of internal RAM was reserved permanently for writing
+and reading `/modules.dat`. The backup sweep held another 7 KB the same way. That is precisely
+the memory the WiFi/TCP stack needs during an upload: it queues what arrives while each chunk is
+written to flash, and with the margin that thin the queue hit the ceiling and the connection
+died. One gateway here recorded a **min-free heap of 500 bytes** before this release.
+
+All three buffers now live in PSRAM, allocated on first use -- the same arrangement the monitor
+ring, the MQTT queue, the module registry and the capabilities scratch have had since 3.12, and
+for exactly this reason.
+
+| | before | after |
+|---|---|---|
+| Internal RAM held at build time | 171,992 B (52.5 %) | **112,008 B (34.2 %)** |
+| Free heap at boot | 67,600 B | **127,576 B** |
+| Free heap low-water during a 1.5 MB upload | **5,480 B** | **98,748 B** |
+
+### Fixed
+
+- **The browser update no longer runs the heap down.** The three staging buffers moved to PSRAM
+  (above). Nothing about the upload path itself changed: it was already correct, it simply had
+  no room to work in.
+- **The wrong file now says so.** Uploading `SplitFlapGateway-<version>.factory.bin` -- the
+  full-flash image for a blank board over USB, and the easiest mistake to make, since it sits
+  next to the right file in every release -- used to stream for eight seconds and end in
+  "Update failed", which reads exactly like a broken updater. The first chunk is now checked for
+  the application-image descriptor and refused immediately with *"That looks like a full-flash
+  image (.factory.bin), which can only be written over USB. Upload the plain
+  SplitFlapGateway-&lt;version&gt;.bin instead."*
+- **Failures report what actually happened.** A flash write error or a failed verification now
+  carries the Update library's own reason ("The image did not verify: Could Not Activate The
+  Firmware") instead of one generic sentence, and the updater page prints it.
+
+- **A successful flash can no longer look like a failure because of mDNS.** The updater page
+  polls for the gateway coming back, on whatever address the page itself was opened from. Open
+  it as `http://splitflap-gw-xxxxxx.local/ota` and that poll depends on the name still resolving
+  the moment the board returns -- and a cached record, an access point that blocks multicast
+  between bands, or a phone that never resolves `.local` at all turns a flash that worked into
+  "the gateway has not come back after 90 s". The page now carries the gateway's own IP address
+  and tries it when the name does not answer, and the "Open the dashboard" link it then offers
+  points at the address that did. (mDNS itself is unchanged and working: `_arduino._tcp` for
+  `espota`, `_http._tcp` for browsers.)
+
+### Changed
+
+- **The updater page names the file to pick**, and says the `.factory.bin` is refused there.
+
+## v4.1.0 — 2026-10-21
+
+**Symbols on the flaps: a heart, arrows and a smiley, printed on a real reel and addressed as
+themselves.**
+
+People print symbols on some of their flaps. Until now the gateway had no way to reach one: a
+module carries exactly one byte per flap and is addressed by that byte, and ♥ has no
+Windows-1252 code. A client could only pick a punctuation mark and remember what it stood for.
+
+This release gives each symbol a reserved lowercase letter on the wire -- the same trick the
+protocol already uses for the seven colour flaps (`r o y g b p w`) and for the classic reel's
+double-quote flap (`q`) -- and translates at every edge, so **clients only ever see the symbol
+itself**.
+
+| Letter on the wire | Symbol | Name | Stand-in | Also accepted |
+|---|---|---|---|---|
+| `h` | ♥ | heart | `*` | ❤ |
+| `u` | ↑ | up | `^` | ⬆ |
+| `d` | ↓ | down | `V` | ⬇ |
+| `s` | ☺ | smiley | `:` | 🙂 😊 😀 |
+| `l` | ← | left | `<` | ⬅ |
+| `t` | → | right | `>` | ➡ |
+
+**Update the gateway before you configure a reel with symbols.** An older gateway stores the
+letters but reports them as plain lowercase letters, which is how `h` ends up looking like a
+stray consonant in a character set.
+
+### Added
+
+- **Send and receive the symbols.** `POST /api/flap/char`, `/api/flap/text`,
+  `/api/display/cells`, the MQTT display topics and the Home Assistant Text entity all accept
+  ♥ ↑ ↓ ☺ ← →, their emoji forms, and a trailing variation selector (`❤️` is one flap).
+- **Printed where it is printed, nowhere else.** Each character is resolved against the reel of
+  the module it lands on: the symbol's flap if that reel carries it, otherwise a stand-in that
+  reel does have (♥→`*`, ☺→`:`, ↓→`V`) or a blank. One glyph is still one module, so text never
+  shifts around a module that cannot show a heart. `/api/display/cells`, whose contract is
+  lenient rather than approximate, skips such a cell instead and counts it in `skipped`.
+- **Configure a reel with symbols.** Paste ♥ ↑ ↓ into the Flap Set editor, or use the new
+  palette of the six symbols and seven colours that inserts at the cursor. The dashboard shows a
+  stored reel's symbols as symbols and its colours as swatches, in the module dialog, the live
+  wall, the calibration grid and the wizard; the bus monitor annotates a frame as `m5-h (♥)`.
+- **`/api/capabilities` says what the wall is printed with.** `charset.union` and `common`
+  report the symbols themselves (never the letters), the new **`pictographs`** names the ones
+  some reel carries (`["heart","up","down"]`), and the new **`spelling`** gives the byte to send
+  on the raw frame paths for every character whose wire byte differs from the character. The
+  `symbols` feature token means all three are present. API version is now **3.2.0**.
+- **Reports what the flap shows.** `/api/display/state`, `/api/flap/modules` and the MQTT
+  display string report a symbol as its symbol and the double-quote flap as `"`. `sets[].chars`
+  stays raw, because addressing a flap by INDEX works against the bytes the module stores.
+
+### Changed
+
+- **`chars` in the `/api/flap/text` reply counts modules written, not bytes of UTF-8.** `"A♥B"`
+  answered 5 before this release; it answers 3.
+- **A broadcast of something reel-dependent is expanded per module.** A broadcast carries one
+  byte, and for a heart that byte is `h`: `m*-h` is the heart only on the reels printed with
+  one, and every other module, finding no `h` on its reel, would home. So the gateway resolves
+  the request for each provisioned module first and sends a single `m*-h` only when every reel
+  is known and they all agree -- otherwise a frame each (`m14-h`, `m13-*`, ...). Everything that
+  does not depend on the reel still broadcasts exactly as before.
+- **147 dashboard strings became translatable.** The string extractor only collected literals in
+  a `.textContent`/`placeholder`/`confirm`/`alert` context, so strings hand-wrapped in `t()`
+  inside built HTML -- a title, a label spliced into a row -- never reached the catalog and
+  silently stayed English in every language. With those, and this release's own, the catalog is
+  640 keys, up from 479. The new symbol strings are translated in all 12 languages.
+
+### Fixed
+
+- **A reel printed with a real `"` could not show it.** The gateway always sent `q`, the byte
+  the classic reel borrows for that flap, so a module whose reel prints `"` directly hunted for
+  a flap it does not have and re-homed. It now sends whichever byte that module's reel actually
+  carries.
+- **Quiet Time gave back `Q` instead of `"`.** The replay pushed the captured wire bytes through
+  the resolver a second time, so the double-quote flap came back as a letter Q -- and a heart
+  would have come back as an H. Captured bytes are replayed verbatim now.
+- **The Module Firmware card read "-" until you switched tabs** and came back (4.0.0 respin).
+
+### Measured on the wall
+
+Fifteen modules, one of them given a reel with ♥ ↑ ↓ in place of three punctuation flaps:
+
+| Check | Result |
+|---|---|
+| `A♥B` across modules 0-2 | `m0-A`, `m1-*`, `m2-B` -- the stand-in, and nothing shifted |
+| ♥ to the module that has it | `m14-h` |
+| `❤️` (emoji + variation selector) | `m14-h` -- one flap |
+| A typed `h` | `m14-H` |
+| `"` on a reel that borrows `q` | `m14-q` |
+| Cells ♥ to one module with it and one without | `sent 1, skipped 1` |
+| Broadcast ♥ with mixed reels | fourteen `m<id>-*` and one `m14-h` |
+| Broadcast `A` | one `m*-A`, as before |
+| Quiet Time off | `m13-q` and `m14-h` replayed verbatim |
+| Capabilities | `pictographs ["heart","up","down"]`, ♥ in `union` and not in `common`, no letters in either |
+
+Also: 71 host assertions in `tools/symbol_test.cpp` and 14 more in `tools/capset_test.cpp`,
+compiling the firmware's own table and set arithmetic rather than a copy of either.
+
+## v4.0.0 — 2026-10-20
+
+**A major version, because the gateway now does something it never could: update the modules
+themselves.**
+
+### What changed, and why that needs a new major version
+
+Until now, new module firmware meant a programmer, a cable and a trip to every single module.
+Module firmware [**v35**](https://github.com/avandeputte/SplitFlapUniversalFirmware/releases/tag/35)
+changes that by giving each module a **bootloader** — a kilobyte at the start of its own flash
+that can replace the rest of the firmware from an image sent over the RS-485 bus. The modules
+stay on the wall; the firmware comes to them.
+
+That only works with a controller that speaks the update protocol, and **this release is that
+controller**. The gateway grew a new role here: it is no longer only a thing that drives a
+display, it is the thing that maintains the hardware behind it. Hence 4.0.
+
+**What you need to do once.** The bootloader itself has to arrive the old way: one last flash
+over UPDI per module, with the web flasher or avrdude, which also sets the fuse that reserves
+the bootloader's kilobyte. After that, every future module firmware goes over the bus from this
+screen. Modules still on older firmware keep working exactly as before — the gateway skips them
+and they are not disturbed by the update traffic.
+
+**Nothing about an update puts a module at risk.** It keeps its ID and its calibration, because
+the bootloader never writes EEPROM. It never starts a half-written image: a module that loses
+power, or loses the gateway, part way through simply waits for the image to be sent again.
+
+### Fixed in this release
+
+- **The Settings card that updates the gateway did not say whose firmware it updates.** Now
+  that the gateway can update the modules as well, "OTA Firmware Update" was both ambiguous
+  and jargon. It is **Gateway Firmware**, it says in a line that it updates this gateway and
+  where the modules' own firmware lives, and the page it opens says the same. The word "OTA"
+  is gone from the dashboard; the endpoints, the `otaPassword` setting and the `/ota` path are
+  unchanged.
+- **The Module Firmware card read "-" instead of naming the image it holds** until you left the
+  Modules tab and came back. It now loads on the first paint.
+
+- **The maintenance banner and its yellow border hung around after the work had finished**,
+  sometimes for fifteen seconds and sometimes until the page was reloaded, which is what it
+  looked like from the outside.
+
+  The dashboard runs several pollers and passes them through one gate so the gateway's
+  single-threaded web server is never hammered: at most one request every 150 ms. The gate
+  **dropped** a call that arrived inside that window instead of deferring it, and the loser was
+  always the same one — the status poll runs every three seconds and draws the banner, while
+  the bus monitor polls every six hundred milliseconds. Every collision cost the banner another
+  three seconds, and a run of them cost it much more. A reload looked like the fix because the
+  page polls once on load.
+
+  A gated call is now deferred rather than lost, at most one pending per poller so nothing can
+  pile up. The dashboard also refreshes the moment it takes or releases a hold of its own,
+  rather than waiting for the next poll.
+
+  Measured on the wall, over three trials: a hold taken by something else shows and clears
+  within the three-second poll, where it previously took fifteen seconds or needed a reload.
+  Opening the Calibration tab now shows the banner in **0.4 s** and leaving it clears the
+  banner in **0.6 s**.
+
+### The gateway side
+
+This follows the module firmware's BUS-UPDATE.md step for step, with `tools/busflash.py` there
+as the reference sender.
+
+### How a run goes
+
+Upload `firmware-update.bin` from a module firmware release — 15,360 bytes, whose own CRC the
+gateway checks before storing it — then start the update from **Modules ▸ Module Firmware**,
+either for named modules or for every eligible one. The gateway then:
+
+1. **skips anything older than v35**, which has no bootloader, and says so rather than sending
+   it 15 KB it cannot use;
+2. **puts the targets into update mode** with a checksummed command, which is the only form a
+   module accepts for this, so line noise can never take a wall off the air;
+3. **confirms each one is waiting** in its bootloader;
+4. **broadcasts the image's 240 pages once**, to every module at a time, so four modules cost
+   the same as one;
+5. **asks each module which pages it actually wrote and read back**, and resends only the gaps,
+   per module, for up to five passes;
+6. **tells them to start the image**, which a module does only when it holds every page and the
+   whole image matches its CRC;
+7. **waits for each one to come back** and reports the version it now runs.
+
+The bus is held **exclusively** throughout, and every frame goes into the trace, so a failed
+update leaves a complete record. A module keeps its ID and calibration — the bootloader never
+writes EEPROM — and one that loses power part way through waits for the image rather than
+starting a half-written one.
+
+### Measured on a real wall
+
+Nineteen modules, eighteen of them with a bootloader:
+
+| Test | Result |
+|---|---|
+| **18 modules, v35/v36 → v36** | one pass, no resends, **18 of 18**, **83 s** |
+| The v32 module on the same bus | skipped by the eligibility check, and undisturbed by 240 broadcast page frames |
+| Bus counters afterwards | 0 discards, 0 rejects, 0 checksum failures, 0 incidents |
+| **Cancel mid-send**, 18 modules | stopped **3.2 s** after the request, bus released |
+| **Recovery**, a second run after that cancel | **18 of 18**, 82 s |
+| **A named subset** (3 of 18) | those three on v36, the other fifteen left on v35 |
+
+Eighteen modules cost the same as one, because the pages go out once to the whole bus. The
+same wall module by module would be twenty minutes, or eighteen trips with a programmer.
+
+Also exercised: single-module updates both ways between v35 and v36, the whole run driven from
+the dashboard including the upload, the guards (an update is refused while a soak owns the bus,
+and refused outright when no target has a bootloader), and the protocol's safe exit — entering
+update mode and sending go before any page returns a module to the firmware it already has,
+with nothing written.
+
+**What a cancel leaves behind.** Once a module has taken its first page it no longer has a
+valid firmware, so a cancelled run leaves its targets waiting in their bootloaders with their
+reels blank, and the eight-second bootloader watchdog makes them forget which pages they had.
+That is the bootloader refusing to start a half-written image rather than anything going wrong,
+and the fix is simply to run the update again: measured above at 82 s for eighteen modules.
+
+**One number worth recording:** a module takes **28.7 seconds** to answer again after it
+starts a new image. It restarts, re-checks the whole image, waits out the staggered start-up
+that keeps a wall from drawing its inrush at once, and homes its reel, and it answers nothing
+through any of that. An earlier build called a perfectly good update a failure by asking after
+two seconds.
+
+### Added
+
+- `PUT /api/modules/firmware` stores the image (size and CRC checked), `GET` reports what is
+  stored, `DELETE` forgets it.
+- `POST /api/modules/firmware/start` `{"ids":[…]}`, or `{}` for every eligible module.
+- `GET /api/modules/firmware/status` — phase, pass, pages, and a row per module.
+- `POST /api/modules/firmware/cancel`.
+- `POST /api/modules/firmware/probe` `{"id":N}` asks one module's bootloader how it is doing:
+  which image it holds and how many pages of it. A module running its firmware does not answer,
+  which is itself the answer.
+- **Modules ▸ Module Firmware** in the dashboard: upload, choose modules or all, progress, and
+  a table of what each module ran before and runs now.
+
+## v3.18.0 — 2026-10-19
+
+Module firmware **v33** adds a checksummed frame format and four counters of its own. This is
+the gateway side of both. A wall can be mixed: the gateway decides per module, from the version
+that module reported, and v32 modules see exactly the traffic they saw before.
+
+### Added
+
+- **Checksummed frames.** A frame can be sent as `~HHHH<frame>`, where `HHHH` is the
+  CRC-16/CCITT-FALSE of the frame. A v33 module verifies it before acting, drops it if it does
+  not match, and answers with checksummed replies; older firmware skips the prefix and runs the
+  frame unchecked, so the same frame is safe on a mixed wall.
+
+  The gateway uses it where a corrupted frame does damage or costs a retry — **reads, writes,
+  restores and the version query** — and leaves **display content plain**, because five extra
+  bytes on a six-byte display command is 80% more traffic for a frame the next update
+  overwrites anyway.
+
+  **Every reply that arrives with a checksum is verified**, and one that fails is dropped
+  rather than parsed, which is the entire point. It is counted, logged as an incident naming
+  the module, and recorded in the soak trace byte for byte. Our implementation was checked
+  against the module firmware's own check value and against Python's `crc_hqx`.
+
+  Note for anyone reading the monitor: the receive path previously began at the `m` of a frame,
+  so a checksum prefix was skipped and the frame was parsed as though it had never been
+  checked. It now starts at the `~`.
+
+- **The counters a v33 module keeps about itself** — receive overflows, broadcast replies sent,
+  how many went out late, and checksummed frames it dropped — are read and shown in the
+  module's Info dialog and returned by the API. Older modules report them as unavailable.
+
+- **`POST /api/flap/stats` {"id":N}** returns that snapshot **without starting a self-test**.
+  The existing diagnostics endpoint returns the same figures but spins the reel for twenty
+  seconds with them, and reading a counter should not cost a motor test. Nothing it sends
+  moves a flap.
+
+- **Bus Health counts checksummed traffic**: frames verified against frames dropped as corrupt.
+  Failures should be zero.
+
+### Measured on a mixed wall
+
+Seven modules on v32, eight on v33:
+
+| | |
+|---|---|
+| Soak | 18 passes, 256 queries, **0 failures**, 0 discards, 0 rejects, 0 retries |
+| Checksummed frames | **165 verified, 0 failed** |
+| v32 modules | plain traffic throughout, unchanged |
+
+And the cross-check the module firmware authors suggested, which is only possible now that both
+sides count: modules 11 and 13 each reported sending **3** broadcast replies over a run, and the
+gateway heard **3** from each. Receive overflows, late slots and checksum errors were all zero.
+
+## v3.17.1 — 2026-10-19
+
+### Changed
+
+- **The gateway stops shouting serial numbers at a wall that knows its own IDs.** Reading a
+  module's calibration was addressed by serial number whenever one was known —
+  `mXD304C55333832E686300D` at 24 bytes where `m12d` does the same job in 6. Every module on
+  the bus receives every command, so those 20 extra bytes were spent by the whole wall, on
+  every read, to disambiguate something that is almost never ambiguous.
+
+  Measured on the trace of a two-minute soak, before and after:
+
+  | | Command frames | Bytes on the wire |
+  |---|---|---|
+  | Before | 575 | 5,742 |
+  | After | 590 | 2,058 |
+
+  **64% fewer command bytes**, with the same 240 queries answered and no retries needed.
+
+  The serial-number form has not gone away; it has moved to where it earns its length. A read
+  is asked by ID first, and only if that goes unanswered is it asked again by serial number,
+  which no other module can answer by mistake. That is also exactly when a stale or duplicated
+  ID is a plausible explanation, so the expensive form is now used in the one case it helps.
+
+  It matters beyond tidiness: shorter commands mean fewer bytes every other module has to
+  receive while it is busy, and an overrun receive buffer on a module is the mechanism behind
+  the silent-module reports this series of releases has been chasing.
+
+  Provisioning (`mXI`, `mXH`), restores (`mXW`), the by-serial API endpoints and the soak's
+  pre-run snapshot still address by serial number, each for a reason: the module has no usable
+  ID yet, the ID is being changed, or pairing the right calibration with the right serial is
+  the point of the operation.
+
+### Also in this release
+
+Written after the module firmware authors replied to the hardening requests, and after
+measuring their claims against a live wall of v32 modules.
+
+- **A broadcast batch now ends when every module has answered**, instead of running to a clock.
+  A module answers in its own timed slot, and its clock runs slow while bytes are on the bus,
+  so later slots land later than nominal. A window sized to the nominal slots closes while the
+  last modules are still waiting their turn, and the next broadcast cancels a reply that has
+  not gone out. At 64 IDs that window was 46 s against a last reply landing past 50 s, which
+  fits the field report of modules going missing *only* in broadcasts better than collisions
+  do. The deadline now allows for the drift as a backstop. Measured on 15 modules: the roll
+  call holds the bus 1.6 s instead of 2.5, and the combined-dump batch 10.5 s instead of 14.9.
+
+- **A restore will not replay an impossible flap position.** Values such as 65368 (which is
+  −168 stored unsigned) exist in older backups; writing one back stores nonsense, and module
+  firmware v33 refuses it silently, so the only symptom would be a verify mismatch nobody can
+  explain. Such an entry is now skipped and logged with its module and flap.
+
+- **The three bus counters module firmware v33 reports are read and shown** — receive
+  overflows, broadcast replies sent, and how many went out late — in the module's Info dialog
+  and on `GET /api/flap/diag/status`. Older modules report them as unavailable rather than
+  breaking the parse, which was checked against v32.
+
+- **The incident log distinguishes a recovered fallback from real silence.** "A long read
+  failed and a shorter one worked" is the signature of a length problem on a module that is
+  plainly alive, and it no longer reads as "no reply".
+
+- **A self-test nobody collects no longer blocks every later test.** The running flag was only
+  cleared by reading the status endpoint, so starting a Hall test from a script and never
+  polling it left the gateway refusing probes and soaks until it rebooted. Stale jobs are now
+  reaped past their own deadline, late enough that a polling client still sees its result.
+
+- **Terminators stay on every command but one.** The module authors expected the stats and dump
+  queries to suffer the same half-duplex race as the version query, where the module answers on
+  the command letter while the gateway is still transmitting its newline and deaf. Measured on
+  a v32 module: `m5v` answered 40 times out of 40 and `m5v\n` zero times out of 40, while
+  `m5Q` answered 40 out of 40 either way, because its reply takes milliseconds to prepare. So
+  the exception stays exactly one frame wide, with the numbers recorded beside it.
+
 ## v3.17.0 — 2026-10-19
 
 ### Added

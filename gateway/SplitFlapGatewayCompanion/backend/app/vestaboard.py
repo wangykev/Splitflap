@@ -17,7 +17,8 @@ Two house rules this module has to respect:
 
 1. **The companion doesn't police characters** (see renderer.py): a module blanks
    whatever glyph it lacks, so we translate a code to its character and pass it on —
-   no substituting, no stripping. ``°`` (62) goes through as ``°``.
+   no substituting, no stripping. A reel that can't show one (``♥``, say) is handled by
+   renderer.degrade(), not here.
 2. **Case is load-bearing**: ``y`` is a yellow tile, ``Y`` is the letter Y. Everything
    this module emits is final, so callers must send it with ``raw=True`` to skip the
    uppercasing that would turn every color chip into a letter.
@@ -39,7 +40,13 @@ CODE_TO_CHAR: dict[int, str] = {
     37: "!", 38: "@", 39: "#", 40: "$", 41: "(", 42: ")",
     44: "-", 46: "+", 47: "&", 48: "=", 49: ";", 50: ":",
     52: "'", 53: '"', 54: "%", 55: ",", 56: ".", 59: "/", 60: "?",
-    62: "°",                                                   # Flagship degree (a Note shows a heart)
+    # Flap 62 is the degree sign on a classic Flagship but a HEART on a Note (and newer
+    # Flagships) — the same flap, two prints. We present a Note by default (see
+    # local_api.encode_board), so this flap decodes to the heart. The physical reel shows ♥
+    # if it has that flap, else renderer.degrade() turns it into `*`. A wall degree still
+    # encodes back to 62 — see CHAR_TO_CODE below.
+    62: "♥",                                              # ♥
+
     # Color chips -> the firmware's COLOR FLAPS, as their own codepoints — never the
     # letters r/o/y/g/b/p/w: decoding a red chip to "r" would write the LETTER r on a Matrix
     # Portal, and encoding the r of "Hello" would read back as a red chip. Violet is `p`.
@@ -63,6 +70,10 @@ MAX_CODE = 71   # a real board rejects anything outside 0..71, and so do we
 CHAR_TO_CODE: dict[str, int] = {
     char: code for code, char in CODE_TO_CHAR.items() if code not in (70, 71)
 }
+# Flap 62 reads back as 62 whether the wall shows the heart (handled by the table above:
+# ♥ -> 62) or a degree sign: both are that one flap on a Vestaboard, so a ° on the wall must
+# not fall through to a blank. (A Note client renders 62 as ❤ either way — it has no degree.)
+CHAR_TO_CODE["°"] = 62   # °
 
 BLANK = 0
 
@@ -238,6 +249,45 @@ def encode(chars: list[str], rows: int, cols: int) -> list[list[int]]:
             row.append(CHAR_TO_CODE.get(ch, CHAR_TO_CODE.get(ch.upper(), BLANK)))
         out.append(row)
     return out
+
+
+# The two board shapes every Vestaboard client knows (docs.vestaboard.com): a Note is
+# 3x15, a Flagship 6x22. A wall that is neither must still be PRESENTED as one of these on
+# reads — the popular ha-vestaboard integration looks the matrix size up in a table of
+# exactly {(6,22): flagship, (3,15): note} and raises "Unknown Vestaboard model: RxC" on
+# anything else, which its config flow then reports as a bare "Unexpected error".
+NOTE_ROWS, NOTE_COLS = 3, 15
+FLAGSHIP_ROWS, FLAGSHIP_COLS = 6, 22
+
+
+def present_model(rows: int, cols: int) -> tuple[int, int]:
+    """The standard Vestaboard shape to report for a ``rows`` x ``cols`` wall: a Note
+    (3x15) by default, a Flagship (6x22) only when the wall is larger than a Note in
+    either dimension. These are the only two sizes a Vestaboard client recognizes, so a
+    1x15 strip or a 2x20 wall is reported as the smallest standard board that holds it."""
+    if rows <= NOTE_ROWS and cols <= NOTE_COLS:
+        return (NOTE_ROWS, NOTE_COLS)
+    return (FLAGSHIP_ROWS, FLAGSHIP_COLS)
+
+
+def encode_board(chars: list[str], rows: int, cols: int) -> list[list[int]]:
+    """The live wall -> a STANDARD Vestaboard matrix for reads: a Note (3x15) by default,
+    a Flagship (6x22) for larger walls (see ``present_model``).
+
+    A wall that already is a standard size round-trips cell-for-cell; any other size (a
+    1x15 strip, say) has its current content centered into the presented board, so a client
+    that only knows the two official sizes can still read us. The write path is unaffected —
+    ``decode_request`` already fits a standard-shaped message back onto the real wall.
+    ``encode`` stays the raw, grid-exact codec for callers that want the true geometry."""
+    vb_rows, vb_cols = present_model(rows, cols)
+    if (rows, cols) == (vb_rows, vb_cols):
+        return encode(chars, rows, cols)
+    wall_lines = [
+        "".join(chars[r * cols + c] if r * cols + c < len(chars) else " "
+                for c in range(cols))
+        for r in range(rows)
+    ]
+    return encode(list(fit(wall_lines, vb_rows, vb_cols)), vb_rows, vb_cols)
 
 
 def style_for(strategy: str | None, default: str) -> str:

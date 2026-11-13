@@ -1,4 +1,5 @@
 #include "gateway.h"
+#include <esp_wifi.h>
 #include "web_ui.h"
 
 
@@ -37,6 +38,16 @@ static void handleApiSoak();
 static void handleApiSoakCancel();
 static void handleApiSoakSnapshot();
 static void handleApiIncidents();
+static void handleApiStats();
+static void handleApiModFwGet();
+static void mfSendStatus();
+static void handleApiModFwPut();
+static void handleApiModFwRaw();
+static void handleApiModFwDelete();
+static void handleApiModFwStart();
+static void handleApiModFwStatus();
+static void handleApiModFwCancel();
+static void handleApiModFwProbe();
 static void handleApiSoakLog();
 static void handleApiIncidentsClear();
 static void handleApiSoakRollback();
@@ -174,20 +185,9 @@ static void handleLogo() {
   server.send(200, "image/svg+xml", LOGO_SVG);
 }
 
-// Stream a byte range of the static page in watchdog-friendly chunks so a slow
-// client can't trip the stall detector mid-send.
-static void streamPage(const char* p, size_t n) {
-  const size_t CHUNK = 1024;
-  for (size_t off = 0; off < n; off += CHUNK) {
-    size_t c = (n - off < CHUNK) ? (n - off) : CHUNK;
-    server.sendContent_P(p + off, c);
-    wdgWebMs = millis();
-  }
-}
-
 // GET /lang/<code>  -- one UI translation dictionary (v3.5)
 //
-// The dashboard's English is the text already in PAGE_HTML, so English costs nothing
+// The dashboard's English is the text already in the page, so English costs nothing
 // and needs no request. Every other language is a gzipped JSON dict generated into
 // web_ui.h by tools/build_ui.py, and the browser fetches only the one it needs.
 //
@@ -217,36 +217,30 @@ static void handleLang(size_t idx) {
 
 // GET /
 static void handleRoot() {
-  wdgWebMs = millis();                 // streaming response can take a while
+  wdgWebMs = millis();
   // Cap per-write blocking so a stalled browser cannot wedge taskWeb. This must be
   // setConnectionTimeout(): NetworkClient keeps its own `_timeout` (which is what seeds
-  // SO_SNDTIMEO) and does NOT override Stream::setTimeout(), so the old setTimeout(3000)
-  // set the *read* timeout and capped nothing at all -- the comment above was a lie.
+  // SO_SNDTIMEO) and does NOT override Stream::setTimeout().
   server.client().setConnectionTimeout(3000);   // 3s per socket write
   // The page is baked into the firmware, so its bytes change only when the firmware
   // is rebuilt -- and every rebuild changes __TIME__. Serve it with that as an ETag
   // and honour If-None-Match: navigating away and back then costs a tiny 304 instead
-  // of re-downloading the whole ~53 KB page, while a reflash still busts the cache and
-  // delivers the new UI. (The old no-store forced a full re-download on every visit.)
+  // of re-downloading the page, while a reflash still busts the cache and delivers
+  // the new UI.
   static const char* PAGE_ETAG = "\"" __DATE__ "-" __TIME__ "\"";
   server.sendHeader("ETag", PAGE_ETAG);
   server.sendHeader("Cache-Control", "no-cache");   // revalidate, but cheaply (304)
   if (server.header("If-None-Match") == PAGE_ETAG) { server.send(304, "text/html", ""); return; }
-  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
-  server.send(200, "text/html", "");
-  // Stream the static page (web_ui.h), substituting the single {FWVER} token
-  // with the firmware version so the page stays tied to the FW_VERSION macro.
-  const char*  page  = PAGE_HTML;
-  const size_t total = sizeof(PAGE_HTML) - 1;
-  const char*  mark  = strstr(page, "{FWVER}");
-  if (mark) {
-    streamPage(page, (size_t)(mark - page));
-    server.sendContent(FW_VERSION);
-    streamPage(mark + 7, total - (size_t)(mark + 7 - page));  // 7 = strlen("{FWVER}")
-  } else {
-    streamPage(page, total);
-  }
-  server.sendContent("");             // terminate the chunked response
+  // The page is stored GZIPPED and sent as one body with its length up front (v4.4). It used to
+  // be 173 KB of raw markup streamed in 1 KB chunks -- ~170 chunks, three socket writes each --
+  // and on a slow link that took 2-20 s, every one of them with the one-connection server
+  // unable to answer anything else: the dashboard's own polls queued behind its own page. It is
+  // ~49 KB now, in one write. The firmware version used to be spliced into the stream at a
+  // {FWVER} token, which is the only reason the page was not compressed; the page now reads the
+  // version from /api/config, which it loads anyway.
+  server.sendHeader("Content-Encoding", "gzip");
+  server.send_P(200, "text/html", (PGM_P)PAGE_GZ, PAGE_GZ_LEN);
+  wdgWebMs = millis();
 }
 
 // GET /api/rs485/messages
@@ -305,7 +299,7 @@ static void handleApiSendBatch() {
   { char cd[48]; snprintf(cd, sizeof(cd), "batch %u frames, step=%dms",
       (unsigned)frames.size(), step); ringPushCommand('R', cd); }
   int sent = 0;
-  uint32_t due = millis();           // frame i is due at now + i*step
+  uint32_t due = rs485PaceStart((uint32_t)step);   // now, or after whatever is still queued
   for (JsonVariant v : frames) {
     if (sent >= 512) break;          // bound the batch
     const char* f = v.as<const char*>();
@@ -390,17 +384,20 @@ static void handleApiModules() {
     xSemaphoreGive(sfMutex);
     if (!valid) continue;   // list shrank (prune/deprovision) mid-iteration
 
-    // Tracked flap char is one Windows-1252 byte; emit it as JSON-safe UTF-8.
-    char flapBuf[6] = {0};
-    if (m.flapChar) flapToJsonUtf8(&m.flapChar, 1, flapBuf, sizeof(flapBuf));
+    // Tracked flap char is one wire byte; report what it SHOWS, as JSON-safe UTF-8 -- the
+    // symbol for a symbol letter, '"' for the double-quote flap. (A reel is reported raw
+    // elsewhere; this field is the glyph on the front of the module.)
+    char flapBuf[8] = {0};
+    if (m.flapChar && isFlapByte((uint8_t)m.flapChar))
+      flapShownToJson((uint8_t)m.flapChar, flapBuf, sizeof(flapBuf));
     char obj[288];
     int on = snprintf(obj, sizeof(obj),
       "%s{\"id\":%d,\"sn\":\"%s\",\"provisioned\":%s,\"acked\":%s,\"flapIndex\":%d,"
-      "\"flapChar\":\"%s\",\"fwVersion\":\"%s\",\"lastSeen\":%lu,\"lastSeenEpoch\":%lu,"
-      "\"dupSuspect\":%s}",
+      "\"flapChar\":\"%s\",\"fwVersion\":\"%s\",\"board\":%u,\"lastSeen\":%lu,"
+      "\"lastSeenEpoch\":%lu,\"dupSuspect\":%s}",
       emitted ? "," : "", (int)m.id, m.serialNum, m.provisioned ? "true" : "false",
       m.acked ? "true" : "false",
-      m.flapIndex, flapBuf, m.fwVersion, m.lastSeen, m.lastSeenEpoch,
+      m.flapIndex, flapBuf, m.fwVersion, (unsigned)m.board, m.lastSeen, m.lastSeenEpoch,
       m.dupSuspect ? "true" : "false");
     if (on < 0) on = 0;
     if (on > (int)sizeof(obj) - 1) on = (int)sizeof(obj) - 1;   // snprintf truncated
@@ -471,8 +468,9 @@ static void handleApiDisplayState() {
     if (c == 0)       cn = snprintf(cellBuf, sizeof(cellBuf), "%snull", i ? "," : "");
     else if (c == 1)  cn = snprintf(cellBuf, sizeof(cellBuf), "%s\"?\"", i ? "," : "");
     else {
-      // Windows-1252 byte -> JSON-safe UTF-8 (handles euro/accented glyphs).
-      char u[6]; flapToJsonUtf8(&c, 1, u, sizeof(u));
+      // The wire byte -> the glyph the module is showing, as JSON-safe UTF-8 (handles
+      // euro/accented glyphs, the symbol flaps and the double-quote flap).
+      char u[8]; flapShownToJson((uint8_t)c, u, sizeof(u));
       cn = snprintf(cellBuf, sizeof(cellBuf), "%s\"%s\"", i ? "," : "", u);
     }
     if (cn < 0) cn = 0;
@@ -536,8 +534,13 @@ static void handleApiText() {
   int start = doc["start"] | 0;
   if (!text[0]) { sendJsonError(400, "Empty text"); return; }
   sfSendText(start, text, false);
+  // `chars` is MODULES written, not bytes of UTF-8: a euro sign, an accented letter and a
+  // symbol flap are each one flap however many bytes they arrived as. (It counted bytes until
+  // 4.1 -- "A♥B" answered 5.)
+  char enc[SF_MAX_FLAPS * 4 + 1];
+  size_t written = utf8ToFlap(text, enc, sizeof(enc));
   char resp[64];
-  snprintf(resp, sizeof(resp), "{\"ok\":true,\"chars\":%zu}", strlen(text));
+  snprintf(resp, sizeof(resp), "{\"ok\":true,\"chars\":%zu}", written);
   server.send(200, "application/json", resp);
 }
 
@@ -655,8 +658,10 @@ static void handleApiDiag() {
   if (qok) {
     snprintf(out, sizeof(out),
       "{\"ok\":true,\"started\":true,\"id\":%d,"
-      "\"q\":{\"resetCause\":%d,\"bootCount\":%d,\"vcc\":%d,\"eepromOk\":%d,\"curIndex\":%d}}",
-      id, gDiag.q.reset, gDiag.q.boot, gDiag.q.vcc, gDiag.q.ee, gDiag.q.cur);
+      "\"q\":{\"resetCause\":%d,\"bootCount\":%d,\"vcc\":%d,\"eepromOk\":%d,\"curIndex\":%d,"
+      "\"rxOverflows\":%d,\"bcastSent\":%d,\"bcastLate\":%d,\"crcErrors\":%d}}",
+      id, gDiag.q.reset, gDiag.q.boot, gDiag.q.vcc, gDiag.q.ee, gDiag.q.cur,
+      gDiag.q.rxOv, gDiag.q.bcSent, gDiag.q.bcLate, gDiag.q.crcErr);
   } else {
     snprintf(out, sizeof(out), "{\"ok\":true,\"started\":true,\"id\":%d,\"q\":null}", id);
   }
@@ -828,6 +833,7 @@ static void handleApiVersion() {
   int id = doc["id"] | -1;
   DBG("[API] version query module %d\n", id);
   if (id < 0 || id > 254) { sendJsonError(400, "id required (0-254)"); return; }
+  if (gProbe.active || gSoak.active) { sendJsonError(409, "a bus probe or soak is running -- wait for it to finish"); return; }
 
   // Send a direct version query and wait for a fresh reply. The window scales
   // mildly with id (broadcast-stagger headroom); a direct query usually answers
@@ -1002,18 +1008,15 @@ static void capPut(const char* str) {
   capLen += n;
 }
 
-// A byte map as a JSON string body, in reel order (ASCII, then the high bytes).
+// A byte map as a JSON string body, in reel order (ASCII, then the high bytes). Bytes go in as
+// the wire holds them and come out as what a client SEES: a symbol letter becomes its symbol,
+// so `h` never leaves this gateway looking like a lowercase h. (capFoldReel has already turned
+// the double-quote flap's 'q' into '"', which flapShownToJson escapes for the JSON string.)
 static void capPutMap(const bool* map) {
   for (int b = 0x20; b < 256; b++) {
     if (!map[b]) continue;
     char one[12];
-    if (b == '"' || b == '\\') { one[0] = '\\'; one[1] = (char)b; one[2] = 0; }
-    else {
-      char utf8[8] = "";
-      size_t n = flapByteToUtf8((uint8_t)b, utf8);
-      utf8[n] = 0;
-      snprintf(one, sizeof(one), "%s", utf8);
-    }
+    flapShownToJson((uint8_t)b, one, sizeof(one));
     capPut(one);
   }
 }
@@ -1088,6 +1091,41 @@ static void handleApiCapabilities() {
       firstC = false;
     } }
   capPut("],");
+
+  // The SYMBOL flaps some reel is printed with, by name -- `colors`' counterpart, and a union
+  // for the same reason: it answers "is there a heart anywhere on this wall". The names are the
+  // companion's own pictograph names, so a client already speaking to a Matrix wall knows them.
+  { int idx[FLAP_SYM_COUNT];
+    int np = capPictographs(uni, idx, FLAP_SYM_COUNT);
+    capPut("\"pictographs\":[");
+    for (int i = 0; i < np; i++) {
+      char one[26];
+      snprintf(one, sizeof(one), "%s\"%s\"", i ? "," : "", FLAP_SYMBOLS[idx[i]].name);
+      capPut(one);
+    }
+    capPut("],"); }
+
+  // `spelling` -- for every character whose byte on the WIRE differs from the character itself,
+  // the byte to send on the raw paths (/api/rs485/send, MQTT <prefix>/send). The six symbols are
+  // always listed: that is a contract a client can code against whatever this wall happens to be
+  // printed with. '"' joins them only when the wall's reels borrow 'q' for it and none prints
+  // '"' directly -- when reels disagree there is no single answer, so the entry is left out.
+  capPut("\"spelling\":{");
+  { for (int i = 0; i < FLAP_SYM_COUNT; i++) {
+      char sym[8] = ""; size_t sl = flapShownToUtf8((uint8_t)FLAP_SYMBOLS[i].code, sym); sym[sl] = 0;
+      char one[24];
+      snprintf(one, sizeof(one), "%s\"%s\":\"%c\"", i ? "," : "", sym, FLAP_SYMBOLS[i].code);
+      capPut(one);
+    }
+    bool anyBorrowedQ = false, anyPrintedQuote = false;
+    for (int i = 0; i < n; i++) {
+      if (src[i] == FLAPSET_UNKNOWN) continue;
+      if (strchr(reel[i], 'q'))  anyBorrowedQ    = true;
+      if (strchr(reel[i], '"'))  anyPrintedQuote = true;
+    }
+    if (capQuoteSpelling(anyBorrowedQ, anyPrintedQuote)) capPut(",\"\\\"\":\"q\"");
+  }
+  capPut("},");
 
   char mid[48];
   snprintf(mid, sizeof(mid), "\"charset\":{\"uniform\":%s,\"union\":\"", uniform ? "true" : "false");
@@ -1187,8 +1225,12 @@ static void handleApiCapabilities() {
 
   // What the wall can DO, not just show, so a client reads this instead of sniffing the
   // firmware version and guessing.
+  // "symbols" means: the symbol flaps are translated at every edge -- charset.union/common
+  // report the symbols themselves, `pictographs` names the ones this wall carries, and
+  // `spelling` gives the byte for each. NOT "pictographs": on the Matrix Gateway that token
+  // means all fourteen of them, and a client reads it that way.
   capPut("\"features\":[\"colors\",\"index\",\"batch\",\"quiet\",\"maintenance\","
-         "\"ha\",\"ota\",\"flapconfig\"]}");
+         "\"ha\",\"ota\",\"flapconfig\",\"symbols\"]}");
   capFlush();                 // the body -- everything above is still sitting in capBuf
   server.sendContent("");     // the terminating chunk
 }
@@ -1240,7 +1282,7 @@ static void handleApiDisplayCells() {
     ringPushCommand('R', cd); }
 
   int n = 0, sent = 0, skipped = 0;
-  uint32_t due = millis();
+  uint32_t due = rs485PaceStart((uint32_t)step);
   for (JsonObjectConst c : cells) {
     int id = start + n;
     if (id > 254) break;            // ran off the addressable range; stop counting here
@@ -1263,8 +1305,21 @@ static void handleApiDisplayCells() {
     } else if (c["ch"].is<const char*>()) {
       const char* ch = c["ch"].as<const char*>();
       char enc[8];
-      utf8ToFlap(ch ? ch : "", enc, sizeof(enc));            // UTF-8 -> CP1252 byte(s)
-      uint8_t b = enc[0] ? sfResolveFlapByte((uint8_t)enc[0]) : 0;
+      utf8ToFlap(ch ? ch : "", enc, sizeof(enc));            // UTF-8 -> CP1252 byte or symbol code
+      uint8_t in = (uint8_t)enc[0];
+      uint8_t b;
+      int si = flapSymFromInternal(in);
+      if (si >= 0) {
+        // A symbol flap. This endpoint's contract is lenient, not approximate: a module whose
+        // reel the gateway KNOWS and which has no heart printed on it is skipped, rather than
+        // shown the stand-in a text path would use. The caller asked for a heart.
+        char reel[SF_MAX_FLAPS + 1];
+        bool known = sfReelOf(id, reel);
+        if (known && !strchr(reel, FLAP_SYMBOLS[si].code)) { skipped++; continue; }
+        b = (uint8_t)FLAP_SYMBOLS[si].code;
+      } else {
+        b = in ? sfResolveFor(id, in) : 0;                   // per module: '"' needs its reel
+      }
       if (!b) { skipped++; continue; }                       // no showable glyph: lenient skip
       flen = snprintf(frame, sizeof(frame), "m%d-%c\n", id, b);
     } else {
@@ -1311,24 +1366,41 @@ static void handleApiStatus() {
   snprintf(bst, sizeof(bst), "{\"level\":%d,\"reason\":\"%s\",\"remaining\":%ld}",
            (int)busLevel(), busReason(), busRemainingSec());
   restoreStatusJson(rst, sizeof(rst), false);
-  char out[1280];
+  // ESP.getSketchSize() is not a lookup: it runs esp_image_verify() over the running image,
+  // which reads and SHA-256-hashes all ~1.6 MB of it -- about 170 ms of this task, on an
+  // endpoint every open dashboard polls every three seconds, on a server that handles one
+  // request at a time. The image cannot change while it is running, so it is measured once.
+  static uint32_t sketchBytes = 0, sketchSlot = 0;
+  if (!sketchBytes) { sketchBytes = ESP.getSketchSize(); sketchSlot = ESP.getFreeSketchSpace(); }
+  // The radio link, because "the dashboard is slow" is a link problem as often as a firmware
+  // one and until now nothing could tell the two apart from outside.
+  const bool staUp = (WiFi.status() == WL_CONNECTED);
+  wifi_ps_type_t psMode = WIFI_PS_NONE;      // 0 = radio always on, 1/2 = modem sleep
+  esp_wifi_get_ps(&psMode);
+  char bssid[20] = "";
+  if (staUp) { const uint8_t* b = WiFi.BSSID();
+               if (b) snprintf(bssid, sizeof(bssid), "%02x:%02x:%02x:%02x:%02x:%02x", b[0],b[1],b[2],b[3],b[4],b[5]); }
+  char out[1400];
   snprintf(out, sizeof(out),
     "{\"uptime\":%lu,\"rx\":%lu,\"tx\":%lu,\"baud\":%lu,"
+    "\"rssi\":%d,\"channel\":%d,\"bssid\":\"%s\",\"ps\":%d,"
     "\"wifi\":%s,\"ip\":\"%d.%d.%d.%d\",\"apip\":\"%d.%d.%d.%d\","
     "\"heap\":%u,\"minheap\":%u,\"psram\":{\"size\":%u,\"free\":%u},"
     "\"flash\":{\"sketch\":%u,\"free\":%u},\"mqtt\":%s,\"modules\":%d,"
     "\"reset\":\"%s\",\"stk\":{\"rs485\":%u,\"web\":%u,\"net\":%u,\"ota\":%u,\"rtc\":%u,\"soak\":%u,\"probe\":%u},"
     "\"time\":\"%s\",\"ntpSynced\":%s,\"maint\":%s,\"quiet\":%s,"
     "\"companion\":{\"status\":\"%s\",\"age\":%ld},\"restore\":%s,"
-    "\"bus\":{\"rejects\":%lu,\"dropped\":%lu,\"dropBytes\":%lu,\"maxLen\":%lu,\"lock\":%s}}",
+    "\"bus\":{\"rejects\":%lu,\"dropped\":%lu,\"dropBytes\":%lu,\"maxLen\":%lu,"
+    "\"crcOk\":%lu,\"crcFail\":%lu,\"lock\":%s}}",
     millis()/1000, rxCount, txCount, cfg.rs485Baud,
-    (WiFi.status()==WL_CONNECTED)?"true":"false",
+    staUp ? (int)WiFi.RSSI() : 0, staUp ? (int)WiFi.channel() : 0, bssid, (int)psMode,
+    staUp?"true":"false",
     lip[0],lip[1],lip[2],lip[3],
     aip[0],aip[1],aip[2],aip[3],
     ESP.getFreeHeap(), ESP.getMinFreeHeap(),
     (unsigned)ESP.getPsramSize(), (unsigned)ESP.getFreePsram(),
-    (unsigned)ESP.getSketchSize(), (unsigned)ESP.getFreeSketchSpace(),
-    mqtt.connected()?"true":"false",
+    (unsigned)sketchBytes, (unsigned)sketchSlot,
+    gMqttUp?"true":"false",
     sfModuleCount,
     gResetReason, stk485, stkWeb, stkNet, stkOta, stkRtc, stkSoak, stkProbe,
     rtcBuf,
@@ -1336,7 +1408,7 @@ static void handleApiStatus() {
     gMaintenanceMode?"true":"false",
     gQuietTime?"true":"false",
     gCompanionStatus, compAge, rst,
-    sfParseRejects, rxDropped, rxDropBytes, rxMaxLen, bst);
+    sfParseRejects, rxDropped, rxDropBytes, rxMaxLen, rxCrcOk, rxCrcFail, bst);
   server.send(200, "application/json", out);
 }
 
@@ -1364,7 +1436,8 @@ static void handleApiConfigGet() {
   doc["restoreOnBoot"]  = cfg.restoreOnBoot;      // v3.12
   doc["restoreDelay"]   = cfg.restoreDelaySec;
   doc["stepMs"]         = cfg.stepMs;             // v3.13: the companion's default step_ms
-  char out[840];   // headroom for "version" + JSON-escaped SSID/TZ strings
+  doc["mdnsName"]       = otaMdnsName();          // v4.2: http://<mdnsName>.local
+  char out[880];   // headroom for "version" + JSON-escaped SSID/TZ strings
   serializeJson(doc, out, sizeof(out));
   server.send(200, "application/json", out);
 }
@@ -1402,14 +1475,10 @@ static void handleApiConfigMqtt() {
   saveConfig();
   DBG("[CFG] MQTT broker set to %s:%d  prefix=%s\n", cfg.mqttHost, cfg.mqttPort, cfg.mqttPrefix);
   server.send(200, "application/json", "{\"ok\":true}");
-  delay(100);
-  mqtt.disconnect();
-  // PubSubClient caches the broker it was last told to dial. mqttInit() is the only
-  // other caller and runs once at boot, so without this the new broker is saved and
-  // logged but never actually dialled: the reconnect keeps using the boot-time target
-  // (or none at all, if none was configured then) and fails forever with rc=-2.
-  if (strlen(cfg.mqttHost)) mqtt.setServer(cfg.mqttHost, cfg.mqttPort);
-  mqttFailCount = 0;   // a fresh broker gets a fresh strike budget
+  // The client belongs to taskNetwork (see gMqttUp in common.h): it drops the session,
+  // hands PubSubClient the new broker -- which it caches, so a saved setting that is not
+  // handed over is never dialled -- and reconnects, within one pass of its loop.
+  gMqttReconfigReq = true;
 }
 
 // POST /api/config/rs485
@@ -1465,6 +1534,31 @@ static void handleApiConfigSettings() {
     server.send(200, "application/json", "{\"ok\":true}");
     return;
   }
+  // The name on the network (v4.2). Lower-cased and checked before it is stored: a bad label
+  // would leave the gateway reachable only by IP, which is exactly the situation the setting
+  // exists to get people out of. Applied immediately -- no reboot -- and the response carries
+  // the name so the UI can show the URL that now works.
+  if (doc["mdnsName"].is<const char*>()) {
+    char want[MDNS_NAME_MAX + 2] = "";
+    strlcpy(want, doc["mdnsName"] | "", sizeof(want));
+    for (char* c = want; *c; c++) if (*c >= 'A' && *c <= 'Z') *c = (char)(*c - 'A' + 'a');
+    if (!want[0]) strlcpy(want, DEFAULT_MDNS_NAME, sizeof(want));     // blank = back to default
+    if (!otaMdnsNameValid(want)) {
+      sendJsonError(400, "Name must be 1-31 characters: lowercase letters, digits and hyphens, "
+                         "starting and ending with a letter or digit");
+      return;
+    }
+    bool changed = (strcmp(cfg.mdnsName, want) != 0);
+    strlcpy(cfg.mdnsName, want, sizeof(cfg.mdnsName));
+    saveConfig();
+    if (changed) otaApplyMdnsName();
+    printf("[CFG] mDNS name: %s\n", otaMdnsName());
+    char resp[96];
+    snprintf(resp, sizeof(resp), "{\"ok\":true,\"mdnsName\":\"%s\",\"url\":\"http://%s.local\"}",
+             otaMdnsName(), otaMdnsName());
+    server.send(200, "application/json", resp);
+    return;
+  }
   // Serial debug toggle
   if (doc["serialDebug"].is<bool>()) {
     cfg.serialDebug = doc["serialDebug"].as<bool>();
@@ -1480,7 +1574,7 @@ static void handleApiConfigSettings() {
     cfg.haEnabled = doc["haEnabled"].as<bool>();
     saveConfig();
     printf("[CFG] Home Assistant integration %s\n", cfg.haEnabled ? "enabled" : "disabled");
-    if (mqtt.connected()) {
+    if (gMqttUp) {
       if (cfg.haEnabled && !was) { haPublishDiscovery(true); mqttPublishStateTopics(); }
       else if (!cfg.haEnabled && was) { haPublishDiscovery(false); }  // remove entities
     }
@@ -1514,7 +1608,8 @@ static void handleApiConfigSettings() {
   if (doc["ntpServer"].is<const char*>()) {
     strlcpy(cfg.ntpServer, doc["ntpServer"] | DEFAULT_NTP_SERVER, sizeof(cfg.ntpServer));
     if (!cfg.ntpServer[0]) strlcpy(cfg.ntpServer, DEFAULT_NTP_SERVER, sizeof(cfg.ntpServer));
-    ntpSynced = false;   // re-sync against the new server on next network tick
+    ntpSynced = false;
+    gNtpResyncReq = true;   // taskNetwork syncs against the new server on its next pass
     DBG("[CFG] NTP server set to %s\n", cfg.ntpServer);
   }
   if (doc["gridRows"].is<int>() || doc["gridCols"].is<int>()) {
@@ -1545,7 +1640,7 @@ static void handleApiConfigSettings() {
   // Only disconnect/reconnect if WiFi or MQTT credentials were in the payload
   bool hasWifi = doc["ssid"].is<const char*>() || doc["pass"].is<const char*>();
   bool hasMqtt = doc["mqHost"].is<const char*>() || doc["mqPort"].is<int>();
-  if (hasMqtt) mqtt.disconnect();
+  if (hasMqtt) gMqttReconfigReq = true;       // taskNetwork owns the client
   if (hasWifi) WiFi.disconnect();
 }
 
@@ -1882,6 +1977,12 @@ static void handleApiDump() {
   int id = doc["id"] | -99;
   if (id < 0 || id > 254) { sendJsonError(400, "id required (0-254)"); return; }
   DBG("[API] dump module %d\n", id);
+  // Not while a soak or a probe has the bus. They are only a BUSY hold, which this route
+  // passes -- but they use the SAME single reply slot from their own task, so a read started
+  // here re-arms it under them: the test then scores a miss for the reply we stole, and (until
+  // the wait learned to check whose reply it was) this request could return another module's
+  // EEPROM as this one's. handleApiDiag has always refused; these now do too.
+  if (gProbe.active || gSoak.active) { sendJsonError(409, "a bus probe or soak is running -- wait for it to finish"); return; }
 
   char sn[21] = "";
   char fwVer[8] = "";
@@ -1897,20 +1998,21 @@ static void handleApiDump() {
   const char* verStr = (fwVer[0] == 'v' || fwVer[0] == 'V') ? fwVer + 1 : fwVer;
   int fwVerNum = atoi(verStr);
 
-  // Read fresh: prefer the serial-number dump mXD<sn> for fw>=15 with a known
-  // SN; fall back to m<id>d if that gets no reply. A full 64-flap dump is ~565
-  // bytes (~590ms to transmit at 9600 baud) plus the module's EEPROM-read time,
-  // so the wait must be well over 500ms; 1200ms lets mXD fully respond before any
-  // fallback, avoiding a half-duplex collision with a late reply.
+  // Ask by id, which is six bytes; keep the serial-number form for the second ask, where it
+  // is worth its twenty-four. Every module on the wall receives every command, so the long
+  // form was costing the whole bus to disambiguate something that is rarely ambiguous.
+  // A full 64-flap dump is ~565 bytes (~590 ms at 9600 baud) plus the module's EEPROM-read
+  // time, so the wait must be well over 500 ms.
   char rawDump[TX_MAX_BYTES] = "";
   bool gotReply = false;
-  if (fwVerNum >= 15 && sn[0]) {
-    DBG("[API] dump module %d via SN %s (fw=%d)\n", id, sn, fwVerNum);
-    char f[40]; snprintf(f, sizeof(f), "mXD%s\n", sn);
-    gotReply = sfReadDump(id, f, 1200, rawDump, sizeof(rawDump));
+  {
+    char f[16];  snprintf(f, sizeof(f), "m%dd\n", id);
+    char alt[40] = "";
+    if (fwVerNum >= 15 && sn[0]) snprintf(alt, sizeof(alt), "mXD%s\n", sn);
+    gotReply = sfReadDump(id, f, 1200, rawDump, sizeof(rawDump), NULL, NULL, alt[0] ? alt : NULL);
   }
   if (!gotReply) {
-    DBG("[API] dump module %d via ID (fw=%d)\n", id, fwVerNum);
+    DBG("[API] dump module %d: no answer either way (fw=%d)\n", id, fwVerNum);
     char f[16]; snprintf(f, sizeof(f), "m%dd\n", id);
     gotReply = sfReadDump(id, f, 1200, rawDump, sizeof(rawDump));
   }
@@ -1955,6 +2057,7 @@ static void handleApiAll() {
   int id = doc["id"] | -99;
   if (id < 0 || id > 254) { sendJsonError(400, "id required (0-254)"); return; }
   DBG("[API] all (version+EEPROM) module %d\n", id);
+  if (gProbe.active || gSoak.active) { sendJsonError(409, "a bus probe or soak is running -- wait for it to finish"); return; }
 
   char sn[21] = "", fwVer[8] = "";
   xSemaphoreTake(sfMutex, portMAX_DELAY);
@@ -1971,10 +2074,10 @@ static void handleApiAll() {
 
   if (fwVerNum >= 25) {
     // Known v25+: one combined 'A' transaction.
-    char f[64];
-    if (sn[0]) { DBG("[API] all via mXA %s\n", sn); snprintf(f, sizeof(f), "mXA%s\n", sn); }
-    else       { DBG("[API] all via m%dA\n", id);   snprintf(f, sizeof(f), "m%dA\n", id); }
-    gotReply = sfReadDump(id, f, 1300, rawDump, sizeof(rawDump));  // 'A' ~570ms + assembly
+    char f[16]; snprintf(f, sizeof(f), "m%dA\n", id);          // six bytes, not twenty-four
+    char alt[64] = "";
+    if (sn[0]) snprintf(alt, sizeof(alt), "mXA%s\n", sn);      // the second ask, if the first is ignored
+    gotReply = sfReadDump(id, f, 1300, rawDump, sizeof(rawDump), NULL, NULL, alt[0] ? alt : NULL);
     // v3.14: fall back to v+d when 'A' does not come back. This used to return stale on the
     // assumption that a timeout means the module is offline -- which is wrong whenever the
     // failure depends on reply LENGTH. 'A' is the longest reply a module ever sends (it grows
@@ -1985,11 +2088,14 @@ static void handleApiAll() {
       printf("[API] module %d: 'A' did not answer -- retrying with the shorter v+d\n", id);
       mode = "A>vd";
       sfSendVersionAndWait(id, 700, fwVer, sizeof(fwVer), sn, sizeof(sn), NULL);
-      char f2[40];
-      if (sn[0]) snprintf(f2, sizeof(f2), "mXD%s\n", sn);
-      else       snprintf(f2, sizeof(f2), "m%dd\n", id);
-      gotReply = sfReadDump(id, f2, 1300, rawDump, sizeof(rawDump));
-      if (gotReply) printf("[API] module %d: v+d succeeded where 'A' did not\n", id);
+      char f2[16]; snprintf(f2, sizeof(f2), "m%dd\n", id);
+      char alt2[40] = "";
+      if (sn[0]) snprintf(alt2, sizeof(alt2), "mXD%s\n", sn);   // only if the short ask is ignored
+      gotReply = sfReadDump(id, f2, 1300, rawDump, sizeof(rawDump), NULL, NULL, alt2[0] ? alt2 : NULL);
+      if (gotReply) {
+        printf("[API] module %d: v+d succeeded where 'A' did not\n", id);
+        incidentLog((uint8_t)id, 'F', 'A', 0);   // the module answers; the long reply is what fails
+      }
     }
   } else {
     // Unknown or older firmware: version query, then dump (two transactions).
@@ -1998,10 +2104,10 @@ static void handleApiAll() {
     sfSendVersionAndWait(id, 700, fwVer, sizeof(fwVer), sn, sizeof(sn), NULL);
     verStr   = (fwVer[0] == 'v' || fwVer[0] == 'V') ? fwVer + 1 : fwVer;
     fwVerNum = atoi(verStr);
-    char f[40];
-    if (fwVerNum >= 15 && sn[0]) snprintf(f, sizeof(f), "mXD%s\n", sn);
-    else                         snprintf(f, sizeof(f), "m%dd\n", id);
-    gotReply = sfReadDump(id, f, 1300, rawDump, sizeof(rawDump));
+    char f[16]; snprintf(f, sizeof(f), "m%dd\n", id);
+    char alt[40] = "";
+    if (fwVerNum >= 15 && sn[0]) snprintf(alt, sizeof(alt), "mXD%s\n", sn);
+    gotReply = sfReadDump(id, f, 1300, rawDump, sizeof(rawDump), NULL, NULL, alt[0] ? alt : NULL);
   }
   gDump.waitId = -1;  // disarm capture
   // Snapshot the 'A'-only extras the parse left behind (n/a == -99 for the v+d
@@ -2109,7 +2215,7 @@ static bool busReasonIsClientOwned(const char* r) {
 }
 static void handleApiBus() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
-  static char out[384];
+  static char out[560];   // six holds at their longest are ~430 bytes
   busStatusJson(out, sizeof(out));
   server.send(200, "application/json", out);
 }
@@ -2128,7 +2234,7 @@ static void handleApiBusHold() {
   // operator afterwards when its request tag does not reach us (see busIsOperator).
   if (!busHold(reason, BUS_BUSY, (unsigned long)secs * 1000UL,
                (uint32_t)server.client().remoteIP())) { sendJsonError(503, "no free hold slot"); return; }
-  static char out[384];
+  static char out[560];   // six holds at their longest are ~430 bytes
   busStatusJson(out, sizeof(out));
   server.send(200, "application/json", out);
 }
@@ -2151,7 +2257,7 @@ static void handleApiBusRelease() {
     printf("[BUS] '%s' force-released by %s\n", reason, server.client().remoteIP().toString().c_str());
   }
   busRelease(reason);
-  static char out[384];
+  static char out[560];   // six holds at their longest are ~430 bytes
   busStatusJson(out, sizeof(out));
   server.send(200, "application/json", out);
 }
@@ -2209,6 +2315,157 @@ static void handleApiSoakLog() {
   server.send(200, "text/plain", "");
   traceEmitFile([](const char* c) { server.sendContent(c); wdgWebMs = millis(); });
   server.sendContent("");
+}
+
+/* The modules' own firmware, updated over the bus (see modfw.h).
+   PUT  /api/modules/firmware         store firmware-update.bin (15,360 bytes, CRC checked)
+   GET  /api/modules/firmware         what is stored, and which modules could take it
+   POST /api/modules/firmware/start   {"ids":[...]} or {} for every eligible module
+   GET  /api/modules/firmware/status  progress, per module
+   POST /api/modules/firmware/cancel  stop after the current frame
+   POST /api/modules/firmware/probe   {"id":N} -- ask one module's bootloader how it is doing */
+static File     mfFile;
+static size_t   mfRecvd = 0;
+static int      mfErr   = 0;
+static char     mfWhy[72] = "";
+static void mfAbort(int code) {
+  mfErr = code;
+  if (mfFile) mfFile.close();
+  FFat.remove(MODFW_TMP);
+}
+static void handleApiModFwRaw() {
+  HTTPRaw& raw = server.raw();
+  wdgWebMs = millis();
+  switch (raw.status) {
+    case RAW_START: {
+      mfRecvd = 0; mfErr = 0; mfWhy[0] = 0;
+      const size_t len = (size_t)server.clientContentLength();
+      if (!sfFsReady)                 { mfErr = 503; break; }
+      if (gModFw.phase != MODFW_IDLE && gModFw.phase < MODFW_DONE) { mfErr = 409; break; }
+      if (len != MODFW_IMAGE_BYTES)   { mfErr = 400; break; }   // the image is exactly this long
+      FFat.remove(MODFW_TMP);
+      mfFile = FFat.open(MODFW_TMP, "w");
+      if (!mfFile) mfErr = 507;
+      break;
+    }
+    case RAW_WRITE:
+      if (mfErr || !mfFile) break;
+      if (mfRecvd + raw.currentSize > MODFW_IMAGE_BYTES) { mfAbort(413); break; }
+      if (mfFile.write(raw.buf, raw.currentSize) != raw.currentSize) { mfAbort(507); break; }
+      mfRecvd += raw.currentSize;
+      break;
+    case RAW_END: {
+      if (mfErr) { mfAbort(mfErr); break; }
+      mfFile.close();
+      if (mfRecvd != MODFW_IMAGE_BYTES) { mfAbort(400); break; }
+      uint16_t crc = 0;
+      if (!modfwValidateFile(MODFW_TMP, &crc, mfWhy, sizeof(mfWhy))) { mfAbort(422); break; }
+      FFat.remove(MODFW_FILE);
+      if (!FFat.rename(MODFW_TMP, MODFW_FILE)) { mfAbort(507); break; }
+      modfwImageForget();
+      printf("[MODFW] image stored: %u bytes, CRC %04X, firmware v%d\n",
+             (unsigned)mfRecvd, crc, modfwImageVersion(MODFW_FILE));
+      break;
+    }
+    case RAW_ABORTED: mfAbort(400); break;
+  }
+}
+static void handleApiModFwPut() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  if (mfErr) {
+    char buf[160];
+    snprintf(buf, sizeof(buf), "{\"ok\":false,\"error\":\"%s\"}",
+             mfWhy[0] ? mfWhy : (mfErr == 400 ? "the image must be exactly 15360 bytes" : "upload failed"));
+    server.send(mfErr, "application/json", buf);
+    return;
+  }
+  mfSendStatus();
+}
+static void handleApiModFwDelete() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  if (gModFw.phase != MODFW_IDLE && gModFw.phase < MODFW_DONE) { sendJsonError(409, "an update is running"); return; }
+  if (sfFsReady) FFat.remove(MODFW_FILE);
+  modfwImageForget();
+  server.send(200, "application/json", "{\"ok\":true,\"deleted\":true}");
+}
+/* Streamed, because a wall can hold 255 modules and a row apiece does not belong in a static
+   buffer. At 18 modules a fixed 256-byte reply truncated mid-row. */
+static void mfSendStatus() {
+  server.client().setConnectionTimeout(1500);
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "application/json", "");
+  modfwStatusEmit([](const char* c) { server.sendContent(c); wdgWebMs = millis(); });
+  server.sendContent("");
+}
+static void handleApiModFwGet() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  mfSendStatus();
+}
+static void handleApiModFwStatus() { handleApiModFwGet(); }
+static void handleApiModFwStart() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  int ids[MAX_MODULES]; int n = 0;
+  if (server.hasArg("plain") && server.arg("plain").length()) {
+    JsonDocument doc;
+    if (deserializeJson(doc, server.arg("plain")) != DeserializationError::Ok) { sendJsonError(400, "Bad JSON"); return; }
+    JsonArrayConst a = doc["ids"].as<JsonArrayConst>();
+    for (JsonVariantConst v : a) { if (n < MAX_MODULES) ids[n++] = v.as<int>(); }
+  }
+  char err[96] = "";
+  if (!modfwStart(n ? ids : NULL, n, err, sizeof(err))) { sendJsonError(409, err[0] ? err : "cannot start"); return; }
+  mfSendStatus();
+}
+static void handleApiModFwCancel() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  if (gModFw.phase == MODFW_IDLE || gModFw.phase >= MODFW_DONE) { sendJsonError(409, "no update running"); return; }
+  modfwCancel();
+  server.send(200, "application/json", "{\"ok\":true,\"cancelling\":true}");
+}
+static void handleApiModFwProbe() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  if (!server.hasArg("plain")) { sendJsonError(400, "No body"); return; }
+  JsonDocument doc;
+  if (deserializeJson(doc, server.arg("plain")) != DeserializationError::Ok) { sendJsonError(400, "Bad JSON"); return; }
+  const int id = doc["id"] | -1;
+  if (id < 0 || id > 254) { sendJsonError(400, "id required (0-254)"); return; }
+  uint8_t ver = 0, reason = 0, flags = 0, board = 0; uint16_t img = 0; int held = 0;
+  if (!modfwProbe(id, &ver, &reason, &flags, &img, &held, &board)) {
+    char buf[160];
+    snprintf(buf, sizeof(buf),
+      "{\"ok\":true,\"id\":%d,\"inBootloader\":false,\"note\":\"no answer: the module is running its firmware, or has no bootloader\"}", id);
+    server.send(200, "application/json", buf);
+    return;
+  }
+  char buf[250];
+  snprintf(buf, sizeof(buf),
+    "{\"ok\":true,\"id\":%d,\"inBootloader\":true,\"bootloader\":%d,\"board\":%d,\"reason\":%d,"
+    "\"flags\":%d,\"imageCrc\":\"%04X\",\"pagesHeld\":%d,\"pagesNeeded\":%d}",
+    id, ver, board ? board : MODFW_BOARD_DEFAULT, reason, flags, img, held, MODFW_PAGES);
+  server.send(200, "application/json", buf);
+}
+
+/* POST /api/flap/stats {"id":N} -- the module's own snapshot, and nothing else.
+   /api/flap/diag returns the same figures but starts a Hall self-test with them, which spins
+   the reel for twenty seconds. Since module firmware v33 the snapshot carries the counters
+   that matter most for chasing a bus problem -- receive overflows, broadcast replies sent and
+   late, checksum failures -- and reading those should not cost a motor test. Nothing here
+   moves a flap. */
+static void handleApiStats() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  if (!server.hasArg("plain")) { sendJsonError(400, "No body"); return; }
+  JsonDocument doc;
+  if (deserializeJson(doc, server.arg("plain")) != DeserializationError::Ok) { sendJsonError(400, "Bad JSON"); return; }
+  int id = doc["id"] | -1;
+  if (id < 0 || id > 254) { sendJsonError(400, "id required (0-254)"); return; }
+  if (gProbe.active || gSoak.active) { sendJsonError(409, "a bus probe or soak is running -- wait for it to finish"); return; }
+  if (!sfSendAndCaptureQ(id, 1000)) { sendJsonError(504, "no snapshot from that module"); return; }
+  char out[300];
+  snprintf(out, sizeof(out),
+    "{\"ok\":true,\"id\":%d,\"resetCause\":%d,\"bootCount\":%d,\"vcc\":%d,\"eepromOk\":%d,"
+    "\"curIndex\":%d,\"rxOverflows\":%d,\"bcastSent\":%d,\"bcastLate\":%d,\"crcErrors\":%d}",
+    id, gDiag.q.reset, gDiag.q.boot, gDiag.q.vcc, gDiag.q.ee, gDiag.q.cur,
+    gDiag.q.rxOv, gDiag.q.bcSent, gDiag.q.bcLate, gDiag.q.crcErr);
+  server.send(200, "application/json", out);
 }
 
 /* GET /api/bus/incidents?max=50 -- the last anomalies the bus produced, newest first.
@@ -2393,6 +2650,13 @@ static void handleApiMqttTest() {
   // CONNECT/CONNACK. CONNACK from a live broker arrives in milliseconds.
   PubSubClient testMq(testNet);
   testMq.setBufferSize(128);   // CONNECT/CONNACK only -- keep the heap use tiny
+  // PubSubClient waits for the CONNACK in a loop that never yields, for its socket timeout --
+  // 15 s by default. Something that accepts the TCP connection and then says nothing (a TLS
+  // listener, the wrong service on that port, a proxy with a dead backend) therefore pinned
+  // this task for 15 s with the idle task starved, and the task watchdog (5 s, panic) reset
+  // the board: pressing "Test" on a wrong port rebooted the gateway. 3 s is inside the
+  // watchdog and far longer than any live broker takes.
+  testMq.setSocketTimeout(3);
   bool mqOk;
   if (user[0]) mqOk = testMq.connect("sfgw-test", user, pass);
   else         mqOk = testMq.connect("sfgw-test");
@@ -2864,9 +3128,52 @@ static void handleApiRestoreBackupPut() {
   sendRestoreStatus(200);
 }
 
+static void handleApiPerf() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  const bool reset = server.hasArg("reset");
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "application/json", "");
+  perfEmit([](const char* c) { server.sendContent(c); });
+  server.sendContent("");
+  if (reset) perfReset();
+}
+
 void webInit() {
   static const char* COLLECT_HDRS[] = { "If-None-Match", "X-SF-Client" };
   server.collectHeaders(COLLECT_HDRS, 2);   // conditional GETs, and the dashboard's X-SF-Client tag
+  // Every request is timed and attributed (perf.h). The address is taken BEFORE the handler
+  // runs: by the time it returns the client may already be gone.
+  server.addMiddleware([](WebServer& s, Middleware::Callback next) {
+    const uint32_t ip = (uint32_t)s.client().remoteIP();
+    // TCP_NODELAY on every accepted socket. The server writes a response as several small
+    // sends -- a chunked sendContent() alone is three (size line, data, CRLF) -- and with
+    // Nagle on, each send after the first WAITS for the previous one to be ACKed. On this board
+    // that ACK arrives over WiFi, so every extra send cost 20-300 ms of this task doing
+    // nothing: /api/flap/modules, five sendContent calls for 2.7 KB, averaged 322 ms and
+    // peaked at 1.7 s, during which the one-connection server served nobody else.
+    s.client().setNoDelay(true);
+    server.chunkReset();                 // nothing from an abandoned response leaks into this one
+    char uri[40];
+    strlcpy(uri, s.uri().c_str(), sizeof(uri));        // cleared once the handler returns
+    // A JSON body is parsed into the INTERNAL heap, after the server has already read all of
+    // it into a String there: a 40 KB body costs ~40 KB twice, on a board with ~110 KB free
+    // and a supervisor that reboots under 20. The largest legitimate one (a 512-frame batch,
+    // a 255-cell page) is under 10 KB. The big uploads -- firmware, a backup, the companion's
+    // settings -- are streamed to flash by their own handlers and never appear as "plain".
+    if (s.clientContentLength() > 24576 && s.hasArg("plain")) {
+      s.sendHeader("Access-Control-Allow-Origin", "*");
+      s.send(413, "application/json", "{\"ok\":false,\"error\":\"request body too large (24 KB max)\"}");
+      perfNoteRequest(uri, ip, 0, 0);
+      return true;
+    }
+    const uint32_t low0 = ESP.getMinFreeHeap();
+    const uint32_t t0 = millis();
+    const bool r = next();
+    const uint32_t low1 = ESP.getMinFreeHeap();
+    perfNoteRequest(uri, ip, millis() - t0, low1 < low0 ? low1 : 0);
+    return r;
+  });
+  server.on("/api/perf",             HTTP_GET,     handleApiPerf);
   server.on("/",                     HTTP_GET,     handleRoot);
   server.on("/favicon.svg",          HTTP_GET,     handleFavicon);
   server.on("/logo.svg",             HTTP_GET,     handleLogo);
@@ -2914,6 +3221,18 @@ void webInit() {
   server.on("/api/flap/soak/cancel", HTTP_POST,    handleApiSoakCancel);
   server.on("/api/flap/soak/status", HTTP_GET,     handleApiSoakStatus);
   server.on("/api/flap/soak/snapshot", HTTP_GET,    handleApiSoakSnapshot);
+  server.on("/api/modules/firmware",        HTTP_GET,     handleApiModFwGet);
+  server.on("/api/modules/firmware",        HTTP_PUT,     handleApiModFwPut, handleApiModFwRaw);
+  server.on("/api/modules/firmware",        HTTP_DELETE,  handleApiModFwDelete);
+  server.on("/api/modules/firmware",        HTTP_OPTIONS, handleOptions);
+  server.on("/api/modules/firmware/start",  HTTP_POST,    BUSGATED(handleApiModFwStart));
+  server.on("/api/modules/firmware/start",  HTTP_OPTIONS, handleOptions);
+  server.on("/api/modules/firmware/status", HTTP_GET,     handleApiModFwStatus);
+  server.on("/api/modules/firmware/cancel", HTTP_POST,    handleApiModFwCancel);
+  server.on("/api/modules/firmware/probe",  HTTP_POST,    BUSGATED(handleApiModFwProbe));
+  server.on("/api/modules/firmware/probe",  HTTP_OPTIONS, handleOptions);
+  server.on("/api/flap/stats",         HTTP_POST,    BUSGATED(handleApiStats));
+  server.on("/api/flap/stats",         HTTP_OPTIONS, handleOptions);
   server.on("/api/flap/soak/log",      HTTP_GET,     handleApiSoakLog);
   server.on("/api/bus/incidents",      HTTP_GET,     handleApiIncidents);
   server.on("/api/bus/incidents",      HTTP_DELETE,  handleApiIncidentsClear);

@@ -11,7 +11,8 @@
 // ---- file-private forward declarations ----
 static SFModule* sfFindBySN(const char* sn);
 static SFModule* sfUpsert(uint8_t id, const char* sn);
-static bool sfApplyVersionFields(uint8_t id, const char* fwCopy, const char* sn);
+static bool sfApplyVersionFields(uint8_t id, const char* fwCopy, const char* sn,
+                                 uint8_t board = 0);
 static bool sfDedupeBySNLocked(const char* sn);
 static bool sfNoteCorruptVersionReply(uint8_t id);
 static bool sfValidSN(const char* sn);
@@ -34,6 +35,7 @@ SFModule* sfFindById(uint8_t id) {
 
 // Find module by serial number
 static SFModule* sfFindBySN(const char* sn) {
+  if (!sn || !sn[0]) return NULL;          // id 255 with no serial reaches here: see sfUpsert
   for (int i = 0; i < sfModuleCount; i++)
     if (strcmp(sfModules[i].serialNum, sn) == 0) return &sfModules[i];
   return NULL;
@@ -61,6 +63,10 @@ static bool sfDedupeBySNLocked(const char* sn) {
   }
   return changed;
 }
+
+// Bumped by sfModulesClear(), read by sfModulesSave(): a save that straddles a clear discards
+// itself instead of resurrecting the registry that was just wiped.
+static volatile uint32_t sfRegistryGen = 0;
 
 // Add or update a module entry
 static SFModule* sfUpsert(uint8_t id, const char* sn) {
@@ -151,10 +157,26 @@ FlapSetSource sfFlapSetOf(const SFModule& m, char* out) {
   return FLAPSET_UNKNOWN;
 }
 
+// The 255-record staging buffer the registry is written through and read back into. It is
+// 26 KB, and it was a function-local `static` in each of the two functions below -- so 53 KB of
+// INTERNAL RAM, permanently, for something used twice a minute at most. That is the memory a
+// browser firmware upload needs: the WiFi/TCP stack queues what arrives while a chunk is being
+// written to flash, and on a 1.5 MB image the low-water mark was under 6 KB. Same reasoning as
+// psramAllocInit() and the capabilities scratch; allocated on first use, never freed. Save
+// holds sfMutex while it fills this, and load runs at boot before any task exists, so the two
+// never overlap.
+static PersistedModule* persistBuf() {
+  static PersistedModule* buf = NULL;
+  if (!buf) buf = (PersistedModule*) psramAlloc("module persistence staging",
+                                                sizeof(PersistedModule) * MAX_MODULES);
+  return buf;
+}
+
 void sfModulesSave() {
   if (!sfFsReady) return;
   // Build a compact array of durable records under sfMutex.
-  static PersistedModule recs[MAX_MODULES];  // static: avoid large stack frame
+  PersistedModule* recs = persistBuf();
+  if (!recs) return;                         // no memory anywhere: better to skip than crash
   int n = 0;
   if (sfMutex) xSemaphoreTake(sfMutex, portMAX_DELAY);
   for (int i = 0; i < sfModuleCount && n < MAX_MODULES; i++) {
@@ -165,6 +187,7 @@ void sfModulesSave() {
     recs[n].acked         = m.acked;
     strlcpy(recs[n].fwVersion, m.fwVersion, sizeof(recs[n].fwVersion));
     recs[n].lastSeenEpoch = m.lastSeenEpoch;
+    recs[n].board         = m.board;
     recs[n].flapCount     = m.flapCount;
     strlcpy(recs[n].flapChars, m.flapChars, sizeof(recs[n].flapChars));
     n++;
@@ -173,20 +196,40 @@ void sfModulesSave() {
 
   // Write to a temp file then rename, so a crash mid-write can't corrupt
   // the existing good copy.
+  const uint32_t gen = sfRegistryGen;      // a Clear during this save must win (see below)
   File f = FFat.open(MODULES_FILE ".tmp", "w");
-  if (!f) { DBG("[MOD] open for write failed\n"); return; }
+  if (!f) { printf("[MOD] registry save: cannot open the temp file\n"); return; }
   ModulesFileHeader hdr = { MODULES_MAGIC, n };
-  f.write((const uint8_t*)&hdr, sizeof(hdr));
-  if (n > 0) f.write((const uint8_t*)recs, n * sizeof(PersistedModule));
+  size_t wrote = f.write((const uint8_t*)&hdr, sizeof(hdr));
+  if (n > 0) wrote += f.write((const uint8_t*)recs, n * sizeof(PersistedModule));
   f.close();
+  // Only a COMPLETE temp file may replace the good one. The results were ignored: on a full
+  // filesystem (the trace alone can be 4 MB) a short temp file was renamed over the registry,
+  // the next boot rejected it on its size, and the wall came up with no modules at all.
+  if (wrote != sizeof(hdr) + (size_t)n * sizeof(PersistedModule)) {
+    FFat.remove(MODULES_FILE ".tmp");
+    printf("[MOD] registry save FAILED (wrote %u bytes) -- kept the previous file\n", (unsigned)wrote);
+    return;
+  }
+  // "Clear all modules" removes the file. If it ran while this save was between its snapshot
+  // and its rename, the rename put the pre-clear registry straight back.
+  if (gen != sfRegistryGen) { FFat.remove(MODULES_FILE ".tmp"); return; }
   FFat.remove(MODULES_FILE);
-  FFat.rename(MODULES_FILE ".tmp", MODULES_FILE);
+  if (!FFat.rename(MODULES_FILE ".tmp", MODULES_FILE))
+    printf("[MOD] registry save: rename failed -- the new copy is in " MODULES_FILE ".tmp\n");
   DBG("[MOD] Saved %d modules to FATFS\n", n);
 }
 
 // Load persisted modules from the FATFS file at boot, pruning stale entries.
 void sfModulesLoad() {
   if (!sfFsReady) return;
+  // A save replaces the file by remove-then-rename (FAT has no atomic replace). Power lost
+  // between the two leaves only the temp file -- which is complete, or it would not have
+  // been allowed to replace anything. Finish the job instead of booting with an empty wall.
+  if (!FFat.exists(MODULES_FILE) && FFat.exists(MODULES_FILE ".tmp")) {
+    printf("[MOD] finishing an interrupted registry save\n");
+    FFat.rename(MODULES_FILE ".tmp", MODULES_FILE);
+  }
   if (!FFat.exists(MODULES_FILE)) { DBG("[MOD] no saved module file\n"); return; }
   File f = FFat.open(MODULES_FILE, "r");
   if (!f) { DBG("[MOD] open for read failed\n"); return; }
@@ -198,7 +241,8 @@ void sfModulesLoad() {
     f.close();
     return;
   }
-  static PersistedModule recs[MAX_MODULES];
+  PersistedModule* recs = persistBuf();
+  if (!recs) { DBG("[MOD] no staging buffer -- module file not loaded\n"); return; }
   size_t want = (size_t)hdr.count * sizeof(PersistedModule);
   size_t got  = f.read((uint8_t*)recs, want);
   f.close();
@@ -235,6 +279,7 @@ void sfModulesLoad() {
     m->provisioned   = recs[i].provisioned;
     m->acked         = recs[i].acked;
     strlcpy(m->fwVersion, recs[i].fwVersion, sizeof(m->fwVersion));
+    m->board         = recs[i].board;   // only a 'v' reply carries it; keep it across boots
     m->flapCount = recs[i].flapCount;                                  // ~90 s of bus time,
     strlcpy(m->flapChars, recs[i].flapChars, sizeof(m->flapChars));    // not re-read at boot
     m->lastSeenEpoch = recs[i].lastSeenEpoch;
@@ -250,10 +295,11 @@ void sfModulesLoad() {
 // Wipe both the in-memory registry and the persisted file.
 void sfModulesClear() {
   if (sfMutex) xSemaphoreTake(sfMutex, portMAX_DELAY);
+  sfRegistryGen = sfRegistryGen + 1;       // invalidates a save already in flight
   sfModuleCount = 0;
   memset(sfModules, 0, sizeof(SFModule) * MAX_MODULES);
   if (sfMutex) xSemaphoreGive(sfMutex);
-  if (sfFsReady) FFat.remove(MODULES_FILE);
+  if (sfFsReady) { FFat.remove(MODULES_FILE); FFat.remove(MODULES_FILE ".tmp"); }
   sfModulesDirty = false;
   DBG("[MOD] Registry cleared (memory + FATFS)\n");
 }
@@ -273,21 +319,53 @@ void sfModulesClear() {
 // Version queries are sent OUTSIDE sfMutex (rs485Send re-takes the lock via
 // frame tracking, so probing under it would deadlock): IDs to probe are
 // collected under the lock, then queried after release.
-// Periodic RE-QUERY of quiet modules (v3.12: this used to be a prune). A module not
-// heard from in MODULE_STALE_SECS gets a bare version query so its record (firmware,
-// serial, last-seen) stays current and a swapped or re-flashed module is noticed. It is
-// NEVER removed for not answering: the registry is permanent, and only Identify All,
-// De-provision or a corrupt record takes an entry out. After MODULE_PROBE_MAX_TRIES
-// unanswered queries the module is left alone for MODULE_REPROBE_BACKOFF_MS, then asked
-// again. A reply (any frame -> sfTouch) clears the probe state.
+// Two jobs, once a minute.
+//
+// PROVISIONED modules are RE-QUERIED, never removed (v3.12: this used to be a prune). One not
+// heard from in MODULE_STALE_SECS gets a bare version query so its record (firmware, serial,
+// last-seen) stays current and a swapped or re-flashed module is noticed. It is NEVER removed
+// for not answering: the registry is permanent, and only Identify All, De-provision or a
+// corrupt record takes an entry out. After MODULE_PROBE_MAX_TRIES unanswered queries the
+// module is left alone for MODULE_REPROBE_BACKOFF_MS, then asked again. A reply (any frame ->
+// sfTouch) clears the probe state.
+//
+// UNPROVISIONED modules are DROPPED after UNPROV_STALE_MS of not advertising. They are the
+// opposite case: they announce themselves unprompted every 10-15 s, so silence is evidence
+// rather than the absence of it.
 void sfModulesPruneStale() {
   unsigned long nowEp = rtcEpochNow();
-  if (!nowEp) return;  // no valid clock yet
   unsigned long nowMs = millis();
   static uint8_t toProbe[MAX_MODULES];
   int probeN = 0;
 
   if (sfMutex) xSemaphoreTake(sfMutex, portMAX_DELAY);
+
+  // Unprovisioned modules first, and they are the one kind that CAN be dropped for going
+  // quiet: an advertising module speaks every 10-15 s on its own, so silence means it is no
+  // longer there. (A provisioned module only speaks when addressed, which is why the registry
+  // keeps those for ever and re-queries them instead.) Dropping them keeps the Modules tab
+  // honest -- a module that was provisioned from another gateway, or simply unplugged, used to
+  // sit in the list as a card for something that no longer exists.
+  for (int i = sfModuleCount - 1; i >= 0; i--) {
+    SFModule& m = sfModules[i];
+    if (m.provisioned && m.id != 255) continue;
+    // lastSeen is millis() of the last frame from it, 0 if it has not been heard THIS boot (a
+    // restored record, or one just created). Either way the clock starts now and runs out in
+    // UNPROV_STALE_MS.
+    if (m.lastSeen == 0) { m.lastSeen = nowMs; continue; }
+    if (nowMs - m.lastSeen < UNPROV_STALE_MS) continue;
+    DBG("[MOD] unprovisioned %s has not advertised in %lu s -- dropped\n",
+        m.serialNum[0] ? m.serialNum : "(no serial)", (nowMs - m.lastSeen) / 1000UL);
+    for (int j = i; j < sfModuleCount - 1; j++) sfModules[j] = sfModules[j + 1];
+    sfModuleCount--;
+    memset(&sfModules[sfModuleCount], 0, sizeof(SFModule));
+    sfModulesDirty = true;
+  }
+
+  // The re-query half needs a wall clock (last-seen is kept in RTC epoch so it survives a
+  // reboot); the sweep above does not, and runs whether or not the clock has been set.
+  if (!nowEp) { if (sfMutex) xSemaphoreGive(sfMutex); return; }
+
   for (int i = 0; i < sfModuleCount; i++) {
     SFModule& m = sfModules[i];
     if (!m.provisioned || m.id == 255) continue;   // an advertising module has no id to query
@@ -374,33 +452,87 @@ void sfTrackChar(int addr, char c) {
 // through verbatim -- uppercasing them would turn a colour request into a letter.
 // Bytes that aren't a valid flap glyph (controls, undefined slots, the 0x00/0xFF
 // firmware sentinels) are dropped.
-// Resolve a Windows-1252 byte to the flap byte that actually goes on the wire, or 0 if it is
-// not a displayable glyph. Two rules, and they are the reel's, not this function's:
-//   * ASCII lowercase folds to uppercase (the classic reel is printed in capitals) -- EXCEPT
-//     the seven colour codes r/o/y/g/b/p/w, which the protocol conveys as lowercase letters, so
-//     folding them would turn a colour request into a letter.
-//   * '"' maps to 'q', the reel's double-quote alias (the reel has no lowercase, so it borrowed
-//     that byte). GET /api/capabilities advertises the flap as '"', so a caller asking for '"'
-//     must reach it; without the map a '"' went out as byte 0x22, which no reel contains.
-// Shared by sfSendChar and POST /api/display/cells so the two can never disagree about what a
-// byte means (the audit's q-vs-'"' finding was exactly such a disagreement).
+// Resolve a requested byte to the one that actually goes on the wire, or 0 if it is not a
+// displayable glyph. The rules live in flapsym.h (flapResolveFor), because the native tests
+// compile them too; this is the REEL-INDEPENDENT entry point -- what a module whose flap set the
+// gateway does not know gets. It folds lowercase to uppercase except the colour codes, and sends
+// '"' as 'q', the byte the classic char map borrowed for the double-quote flap.
+//
+// Prefer sfResolveFor(id, b) wherever the module is known: a symbol flap and a reel that prints
+// '"' itself can only be resolved against that module's own reel.
 uint8_t sfResolveFlapByte(uint8_t b) {
-  if (b >= 'a' && b <= 'z' && !strchr("roygbpw", (char)b)) b = (uint8_t)(b - 'a' + 'A');
-  if (b == '"') b = 'q';                                     // after the fold, or 'q'->'Q' undoes it
-  return isFlapByte(b) ? b : 0;
+  return flapResolveFor(b, NULL);                            // NULL reel = "not known"
 }
 
-void sfSendChar(int addr, char c) {
-  uint8_t b = sfResolveFlapByte((uint8_t)c);
-  if (!b) return;                                            // not a valid flap glyph
+// One module's reel, copied out under the lock. False (and an empty `out`) when the gateway has
+// no reel for it: a v31+ module that has not answered yet, or an id with no module behind it.
+bool sfReelOf(int id, char* out) {
+  out[0] = 0;
+  if (id < 0) return false;
+  bool known = false;
+  if (sfMutex && xSemaphoreTake(sfMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+    SFModule* m = sfFindById((uint8_t)id);
+    if (m) known = (sfFlapSetOf(*m, out) != FLAPSET_UNKNOWN);
+    xSemaphoreGive(sfMutex);
+  }
+  if (!known) out[0] = 0;
+  return known;
+}
+
+uint8_t sfResolveFor(int id, uint8_t b) {
+  char reel[SF_MAX_FLAPS + 1];
+  sfReelOf(id, reel);                                        // empty when unknown: the fallback
+  return flapResolveFor(b, reel);
+}
+
+void sfSendCharRaw(int addr, uint8_t b) {
+  if (!b || !isFlapByte(b)) return;                          // never put a control byte on the bus
   char buf[24];
-  if (addr < 0)
-    snprintf(buf, sizeof(buf), "m*-%c\n", b);
-  else
-    snprintf(buf, sizeof(buf), "m%d-%c\n", addr, b);
+  if (addr < 0) snprintf(buf, sizeof(buf), "m*-%c\n", b);
+  else          snprintf(buf, sizeof(buf), "m%d-%c\n", addr, b);
   rs485SendStr(buf);
   // Display tracking is handled centrally in rs485Send via sfTrackFromFrame,
   // so every path (including raw frame sends) is covered uniformly.
+}
+
+void sfSendChar(int addr, char c) {
+  uint8_t in = (uint8_t)c;
+  if (addr >= 0) { sfSendCharRaw(addr, sfResolveFor(addr, in)); return; }
+
+  // A BROADCAST of something that resolves per module cannot simply go out as one frame: a
+  // heart is a 'h' on the reels that carry one and a '*' or a blank on the rest, and one frame
+  // can only say one of those. So resolve it for every provisioned module first; one frame only
+  // when every reel is known and they all agree, and otherwise a frame each. Everything that
+  // does NOT depend on the reel (which is almost everything) still broadcasts as before.
+  static uint8_t ids[MAX_MODULES], outB[MAX_MODULES];        // static: not on the caller's stack
+  int    n = 0;
+  bool   allKnown = true, allSame = true;
+  uint8_t firstB = 0;
+  if (sfMutex && xSemaphoreTake(sfMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
+    char reel[SF_MAX_FLAPS + 1];
+    for (int i = 0; i < sfModuleCount && n < MAX_MODULES; i++) {
+      SFModule& m = sfModules[i];
+      if (!m.provisioned) continue;
+      bool known = (sfFlapSetOf(m, reel) != FLAPSET_UNKNOWN);
+      if (!known) { allKnown = false; reel[0] = 0; }
+      ids[n]  = m.id;
+      outB[n] = flapResolveFor(in, reel);
+      if (n == 0) firstB = outB[0];
+      else if (outB[n] != firstB) allSame = false;
+      n++;
+    }
+    xSemaphoreGive(sfMutex);
+  }
+  // Nothing provisioned, or one answer for the whole wall: the single frame it has always been.
+  if (n == 0)                 { sfSendCharRaw(-1, flapResolveFor(in, NULL)); return; }
+  // (Not "only when every reel is known". A module whose reel is unknown resolves to the
+  // reel-independent byte, so if everybody agrees a single frame says exactly what N frames
+  // would -- and it also reaches a module the registry has not met. Requiring every reel to be
+  // known meant ONE module that never reported its set turned every broadcast character into
+  // a frame per module, for good.)
+  (void)allKnown;
+  if (allSame)                { sfSendCharRaw(-1, firstB);                   return; }
+  for (int i = 0; i < n; i++) sfSendCharRaw(ids[i], outB[i]);
 }
 
 // Display by flap index.  addr=-1 = broadcast.
@@ -438,11 +570,14 @@ void sfGoto(int addr, int step) {
   else           snprintf(buf, sizeof(buf), "m%dg%d\n", addr, step);
   rs485SendStr(buf);
 }
+/* A write nobody reads back is the frame most worth checksumming: a corrupted display command
+   is overwritten a second later, a corrupted calibration value stays wrong until someone
+   notices a flap landing off. */
 void sfWritePos(int addr, int idx, int pos) {
   char buf[32];
-  if (addr < 0) snprintf(buf, sizeof(buf), "m*w%d:%d\n", idx, pos);
-  else           snprintf(buf, sizeof(buf), "m%dw%d:%d\n", addr, idx, pos);
-  rs485SendStr(buf);
+  if (addr < 0) { snprintf(buf, sizeof(buf), "m*w%d:%d\n", idx, pos); rs485SendStr(buf); return; }
+  snprintf(buf, sizeof(buf), "m%dw%d:%d\n", addr, idx, pos);
+  sfSendToModule(addr, buf);
 }
 void sfAutoHome(int addr, int enable) {
   char buf[24];
@@ -589,10 +724,8 @@ static void taskProbe(void* pv) {
         ok = sfSendAndCaptureQ(id, 900);
       } else {
         static char out[TX_MAX_BYTES];
-        if (cmd == 'A' && sn[0]) snprintf(frame, sizeof(frame), "mXA%s\n", sn);
-        else if (cmd == 'A')     snprintf(frame, sizeof(frame), "m%dA\n", id);
-        else if (sn[0] && fwNum >= 15) snprintf(frame, sizeof(frame), "mXD%s\n", sn);
-        else                     snprintf(frame, sizeof(frame), "m%dd\n", id);
+        if (cmd == 'A') snprintf(frame, sizeof(frame), "m%dA\n", id);
+        else            snprintf(frame, sizeof(frame), "m%dd\n", id);
         ok = sfSendAndCaptureDump(id, frame, 1400, out, sizeof(out));
       }
       gProbe.s[k].tries = gProbe.s[k].tries + 1;
@@ -685,10 +818,10 @@ static bool soakMapLookup(const char* d, int idx, int* pos) {
   return false;
 }
 static bool soakDump(int id, const char* sn, int fwNum, char* out, size_t outLen) {
-  char frame[48];
-  if (sn[0] && fwNum >= 15) snprintf(frame, sizeof(frame), "mXD%s\n", sn);
-  else                      snprintf(frame, sizeof(frame), "m%dd\n", id);
-  return sfSendAndCaptureDump(id, frame, 1400, out, outLen);
+  char frame[48], alt[48] = "";
+  snprintf(frame, sizeof(frame), "m%dd\n", id);                       // 6 bytes, not 24
+  if (sn[0] && fwNum >= 15) snprintf(alt, sizeof(alt), "mXD%s\n", sn);  // only if that is ignored
+  return sfReadDump(id, frame, 1400, out, outLen, NULL, &gSoak.cancel, alt[0] ? alt : NULL);
 }
 // Send a write, read the dump back, compare. 1 = the value is there; 0 = read back, but
 // different; -1 = the read-back got no reply.
@@ -762,9 +895,36 @@ static void soakBroadcastWindow(char cmd, int k, int lo, int hi) {
   char frame[24];
   snprintf(frame, sizeof(frame), "m*%c%d-%d\n", cmd, lo, hi);
   rs485SendStr(frame);
+  /* How long to hold the window open.
+     A module answers at lead-in + (id - lo) x slot by ITS OWN clock, and that clock runs slow
+     while bytes are on the bus: the bit-banged serial masks interrupts for most of each byte
+     time, so ticks are lost and later slots land later than nominal -- about 15% of the reply
+     traffic ahead of them, per the module firmware's own analysis. A window sized to the
+     nominal slots therefore closes while the last modules are still waiting their turn, and
+     the NEXT broadcast cancels a reply that has not gone out yet. That is the likeliest
+     explanation for a wide wall reporting modules that go missing only in broadcasts: at 64
+     ids the nominal window is 46 s and the last reply lands past 50 s.
+     So: allow for the drift, and finish early the moment every id has answered, which is the
+     common case and keeps a healthy batch short. */
   const unsigned long slot = (cmd == 'A') ? 700UL : 100UL;            // the module's reply slots
-  const unsigned long waitMs = 30 + (unsigned long)(hi - lo + 1) * slot + (cmd == 'A' ? 1500 : 600);
-  if (!soakWait(waitMs)) {
+  const unsigned long replyMs = (cmd == 'A') ? 700UL : 40UL;          // the frame itself on the wire
+  const int span = hi - lo + 1;
+  const unsigned long waitMs = 30 + (unsigned long)(span * slot * 6 / 5)   // +20% for the drift
+                               + replyMs + (cmd == 'A' ? 1500 : 600);
+  const unsigned long deadline = millis() + waitMs;
+  bool allIn = false;
+  while ((long)(millis() - deadline) < 0) {
+    if (gSoak.cancel) break;
+    vTaskDelay(pdMS_TO_TICKS(50));
+    allIn = true;                       // every id we expect to hear from, heard from
+    for (int i = 0; i < gSoak.modules && allIn; i++) {
+      const uint8_t id = gSoak.rows[i].id;
+      if (id < lo || id > hi) continue;
+      if (!gSoakBcSeen[id]) allIn = false;
+    }
+    if (allIn) { vTaskDelay(pdMS_TO_TICKS(60)); break; }   // a breath for a straggler/duplicate
+  }
+  if (gSoak.cancel) {
     // Cancelled mid-window: modules are still answering into their slots, so give the line a
     // moment to go quiet before anyone else may transmit, then drop this window's scores --
     // they are incomplete by definition.
@@ -772,6 +932,7 @@ static void soakBroadcastWindow(char cmd, int k, int lo, int hi) {
     gSoakBcArmed = false;
     return;
   }
+  traceNote("# broadcast %c %d-%d: %s", cmd, lo, hi, allIn ? "all answered" : "window expired");
   gSoakBcArmed = false;
   static bool inTable[256];
   memset(inTable, 0, sizeof(inTable));
@@ -870,12 +1031,17 @@ static void taskSoak(void* pv) {
       else if (cmd == 'v') ok = sfSendVersionAndWait(r.id, 700, NULL, 0, NULL, 0, NULL);
       else if (cmd == 'Q') ok = sfSendAndCaptureQ(r.id, 900);
       else {
-        if (cmd == 'A' && sn[0])       snprintf(frame, sizeof(frame), "mXA%s\n", sn);
-        else if (cmd == 'A')           snprintf(frame, sizeof(frame), "m%dA\n", r.id);
-        else if (sn[0] && fwNum >= 15) snprintf(frame, sizeof(frame), "mXD%s\n", sn);
-        else                           snprintf(frame, sizeof(frame), "m%dd\n", r.id);
+        char alt[48] = "";
+        if (cmd == 'A') {
+          snprintf(frame, sizeof(frame), "m%dA\n", r.id);
+          if (sn[0]) snprintf(alt, sizeof(alt), "mXA%s\n", sn);
+        } else {
+          snprintf(frame, sizeof(frame), "m%dd\n", r.id);
+          if (sn[0] && fwNum >= 15) snprintf(alt, sizeof(alt), "mXD%s\n", sn);
+        }
         bool late = false;
-        ok = sfReadDump(r.id, frame, 1400, out, sizeof(out), &late, &gSoak.cancel);
+        ok = sfReadDump(r.id, frame, 1400, out, sizeof(out), &late, &gSoak.cancel,
+                        alt[0] ? alt : NULL);
         if (late && r.late < 255) r.late++;
         (void)0;   // the miss is logged inside sfReadDump, for every caller
       }
@@ -977,7 +1143,10 @@ bool sfProbeStart(int id, int rounds) {
   gProbe.startedMs = millis(); gProbe.elapsedMs = 0;
   gProbe.dropsBefore = rxDropped; gProbe.dropsDuring = 0;
   gProbe.done = false; gProbe.active = true;
-  if (xTaskCreatePinnedToCore(taskProbe, "Probe", 4096, NULL, 1, &hTaskProbe, 1) != pdPASS) {
+  // 6144, like Soak. At 4096 the deepest chain (version query -> rs485Send with its 1.1 KB
+  // monitor record -> the MQTT mirror's 1 KB buffer -> snprintf) measured 3.5 KB of frames
+  // before interrupt overhead, with a broker connected: no margin at all.
+  if (xTaskCreatePinnedToCore(taskProbe, "Probe", 6144, NULL, 1, &hTaskProbe, 1) != pdPASS) {
     hTaskProbe = NULL; gProbe.active = false;
     return false;
   }
@@ -1022,10 +1191,17 @@ size_t sfBuildRestoreFrame(const char* sn, int homeOffset, int totalSteps, const
 // `charSet` is UTF-8 (as received over JSON); it is converted to the single-byte flap
 // encoding (Windows-1252) the bus protocol and module firmware use -- so euro signs and
 // accented letters each become one flap byte (see charset.h).
+//
+// A reel may also be printed with the SYMBOL flaps, which have no Windows-1252 byte. Those
+// decode to internal codes, and a reel STORES them as their wire letters: that is what the
+// module keeps in EEPROM, reports in its 'A' dump and is addressed by. A typed 'h' is still a
+// typed 'h' -- only ♥ (or one of its aliases) becomes the heart flap. Length counts FLAPS, and
+// a symbol is one of them however many UTF-8 bytes it arrived as.
 const char* sfValidateCharSet(const char* charSet, char* out, size_t outLen) {
   char tmp[SF_MAX_FLAPS * 4 + 4];          // hold the transcode before length-check
   bool allMapped = true;
   size_t n = utf8ToFlap(charSet, tmp, sizeof(tmp), &allMapped);
+  flapSymToLetters(tmp);                   // symbols are stored as the letters the wire uses
   if (!allMapped)        return "charSet has characters not in Windows-1252";
   if (n == 0)            return "charSet has no displayable characters";
   if (n > SF_MAX_FLAPS)  return "charSet too long (max 64 characters)";
@@ -1083,17 +1259,36 @@ void sfCalibrate(int addr) {
 // (Belt and suspenders: rs485Send() now normalizes framing for EVERY sender, so
 // even a hand-typed "m<id>v\n" from the bus monitor or a REST/MQTT raw send is
 // shipped bare. This helper still emits the bare form directly to document intent.)
+bool sfModuleChecksums(int id) {
+  if (id < 0 || id > 254) return false;
+  int fw = 0;
+  if (sfMutex) xSemaphoreTake(sfMutex, portMAX_DELAY);
+  SFModule* m = sfFindById((uint8_t)id);
+  if (m) {
+    const char* v = (m->fwVersion[0] == 'v' || m->fwVersion[0] == 'V') ? m->fwVersion + 1 : m->fwVersion;
+    fw = atoi(v);
+  }
+  if (sfMutex) xSemaphoreGive(sfMutex);
+  return fw >= MODULE_FW_CHECKSUM;
+}
+
+void sfSendToModule(int id, const char* frame) {
+  if (sfModuleChecksums(id)) rs485SendChecked(frame);
+  else                       rs485SendStr(frame);
+}
+
 void sfBusResync() {
   static const uint8_t nl[1] = { '\n' };
   rs485Send(nl, 1, true);          // raw: the normal path drops a frame that is only a terminator
 }
 
 bool sfReadDump(int id, const char* frame, unsigned long timeoutMs,
-                char* out, size_t outLen, bool* late, volatile bool* abort) {
+                char* out, size_t outLen, bool* late, volatile bool* abort, const char* alt) {
   if (late) *late = false;
   if (sfSendAndCaptureDump(id, frame, timeoutMs, out, outLen, abort)) return true;
   if (abort && *abort) return false;      // cancelled: do not spend another read winding down
   vTaskDelay(pdMS_TO_TICKS(BUS_RETRY_GAP_MS));
+  if (alt) frame = alt;                   // second ask: the unambiguous form, whatever it cost
   if (!sfSendAndCaptureDump(id, frame, timeoutMs, out, outLen, abort)) {
     if (!(abort && *abort)) incidentLog((uint8_t)id, 'M', frame && frame[2] == 'A' ? 'A' : 'd', 0);
     return false;
@@ -1106,6 +1301,11 @@ bool sfReadDump(int id, const char* frame, unsigned long timeoutMs,
 
 void sfQueryVersion(int addr) {
   char buf[16];
+  if (sfModuleChecksums(addr)) {              // v33+: checksummed and terminated, no race
+    snprintf(buf, sizeof(buf), "m%dv", addr);
+    rs485SendChecked(buf);
+    return;
+  }
   snprintf(buf, sizeof(buf), "m%dv", addr);   // no '\n' -- gateway turnaround workaround, see note
   rs485SendStr(buf);
 }
@@ -1123,13 +1323,16 @@ bool sfSendAndCaptureDump(int id, const char* frame, unsigned long timeoutMs,
   gDump.ts  = 0;
   gDump.autoHome = gDump.curIndex = gDump.reportedId = -99;  // A-only; cleared per attempt
   gDump.flapCount = -99; gDump.flapChars[0] = 0;             // v31+ 'A' tail; cleared per attempt
+  gDump.gotId      = -1;
   gDump.waitId     = id;
-  rs485SendStr(frame);
+  sfSendToModule(id, frame);     // checksummed if this module verifies them
   unsigned long deadline = millis() + timeoutMs;
-  while (millis() < deadline) {
-    wdgWebMs = millis();
+  while ((long)(millis() - deadline) < 0) {                  // rollover-safe
+    wdgWebFeed();
     vTaskDelay(pdMS_TO_TICKS(10));
-    if (gDump.ts != 0) { strlcpy(out, gDump.data, outLen); return true; }
+    // The slot is shared, so "a reply arrived" is not enough: it must be THIS module's. If
+    // another task re-armed the slot for a different id meanwhile, its reply is not ours.
+    if (gDump.ts != 0 && gDump.gotId == id) { strlcpy(out, gDump.data, outLen); return true; }
     if (abort && *abort) {
       // Give up waiting, but not the bus: the module may be half-way through a 700-byte
       // reply, and releasing the hold on top of that would put content into the middle of
@@ -1149,10 +1352,10 @@ bool sfSendAndCaptureQ(int id, unsigned long timeoutMs) {
   gDiag.q.waitId = id;
   char frame[16];
   snprintf(frame, sizeof(frame), "m%dQ\n", id);
-  rs485SendStr(frame);
+  sfSendToModule(id, frame);
   unsigned long deadline = millis() + timeoutMs;
-  while (millis() < deadline) {
-    wdgWebMs = millis();
+  while ((long)(millis() - deadline) < 0) {                  // rollover-safe
+    wdgWebFeed();
     vTaskDelay(pdMS_TO_TICKS(10));
     if (gDiag.q.ts != 0) { gDiag.q.waitId = -1; return true; }
   }
@@ -1174,8 +1377,8 @@ bool sfSendVersionAndWait(int id, unsigned long timeoutMs,
   xSemaphoreGive(sfMutex);
   sfQueryVersion(id);   // bare 'v' -- collision-safe
   unsigned long deadline = millis() + timeoutMs;
-  while (millis() < deadline) {
-    wdgWebMs = millis();
+  while ((long)(millis() - deadline) < 0) {                  // rollover-safe
+    wdgWebFeed();
     vTaskDelay(pdMS_TO_TICKS(10));
     bool got = false;
     xSemaphoreTake(sfMutex, portMAX_DELAY);
@@ -1255,14 +1458,40 @@ static void sfSetAutoHome(int addr, bool enable) {
 void sfSendText(int startAddr, const char* text, bool blankUnused) {
   // `text` arrives as UTF-8 (from the web UI / MQTT / JSON). Transcode it to the
   // single-byte flap encoding (Windows-1252) first, so one displayed glyph --
-  // including a euro sign or an accented letter, which are multi-byte in UTF-8 --
-  // maps to exactly one flap module. Unrepresentable code points are dropped.
+  // including a euro sign, an accented letter or a symbol flap, all of which are
+  // multi-byte in UTF-8 -- maps to exactly one flap module. Unrepresentable code
+  // points are dropped.
   char enc[SF_MAX_FLAPS * 4 + 1];
   size_t len = utf8ToFlap(text, enc, sizeof(enc));
+
+  // Resolve the WHOLE line against the reels in ONE pass under the lock, then send with the
+  // lock released. A symbol resolves differently per module (its letter, a stand-in, a blank),
+  // so each character has to be measured against the module it is going to -- but taking the
+  // mutex per character would hold it across the inter-frame gaps below, where rs485Send must
+  // never be called with it held.
+  static uint8_t wire[SF_MAX_FLAPS * 4 + 1];                 // static: keeps it off this stack
+  if (sfMutex && xSemaphoreTake(sfMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    char reel[SF_MAX_FLAPS + 1];
+    for (size_t i = 0; i < len; i++) {
+      int       id = startAddr + (int)i;
+      SFModule* m  = (id >= 0 && id <= 254) ? sfFindById((uint8_t)id) : NULL;
+      bool known = (m && sfFlapSetOf(*m, reel) != FLAPSET_UNKNOWN);
+      if (!known) reel[0] = 0;
+      wire[i] = flapResolveFor((uint8_t)enc[i], reel);
+    }
+    xSemaphoreGive(sfMutex);
+  } else {
+    for (size_t i = 0; i < len; i++) wire[i] = flapResolveFor((uint8_t)enc[i], NULL);
+  }
+
   for (size_t i = 0; i < len; i++) {
-    // sfSendChar uppercases ASCII and rejects non-printable bytes itself; the
-    // module firmware maps the character byte to a flap index.
-    sfSendChar((int)(startAddr + i), enc[i]);
+    // One character, one module: a symbol that this module cannot show still occupies its
+    // place (as a stand-in or a blank), so nothing shifts left around it.
+    const int id = startAddr + (int)i;
+    // Off the wall is off the wall. A negative id is sfSendCharRaw's way of saying BROADCAST,
+    // so text sent with a negative start used to put its first characters on every module.
+    if (id < 0 || id > 254) continue;
+    sfSendCharRaw(id, wire[i]);
     delay(10); // inter-message gap to avoid bus collision
   }
   // Optionally blank any previously-set modules beyond the text length
@@ -1332,7 +1561,11 @@ void sfSetQuietTime(bool on) {
       xSemaphoreGive(sfMutex);
     }
     for (int i = 0; i < n; i++) {
-      if (list[i].ch) sfSendChar(list[i].id, list[i].ch);
+      // The captured bytes are what went to the WIRE -- already resolved against each module's
+      // reel when they were first sent. Replay them verbatim: pushing them through sfSendChar
+      // again would fold them a second time, and a double-quote flap ('q') or a heart ('h')
+      // would come back from Quiet Time as a letter Q or H.
+      if (list[i].ch) sfSendCharRaw(list[i].id, (uint8_t)list[i].ch);
       else if (list[i].idx >= 0) sfSendIndex(list[i].id, list[i].idx);
     }
     if (n) printf("[QUIET] off -- resynced %d module(s) to last requested display\n", n);
@@ -1384,13 +1617,18 @@ static bool sfValidSN(const char* sn) {
 // only the firmware is updated. The entry is re-found by id under sfMutex (the
 // upsert pointer can be invalidated by concurrent compaction), and any other
 // entry holding the same serial is collapsed so a serial maps to one record.
-static bool sfApplyVersionFields(uint8_t id, const char* fwCopy, const char* sn) {
+// `board` is the driver board from a 'v' reply's tail, or 0 when the reply did not carry one
+// -- which is every reply from firmware older than v36, and every 'A' dump whatever the
+// firmware. 0 therefore means "this reply says nothing about the board", NOT "no board": a
+// known board is kept rather than cleared, so an 'A' dump never erases what a 'v' reply found.
+static bool sfApplyVersionFields(uint8_t id, const char* fwCopy, const char* sn, uint8_t board) {
   if (sn && sn[0] && !sfValidSN(sn)) return false;
   xSemaphoreTake(sfMutex, portMAX_DELAY);
   SFModule* mm = sfFindById(id);
   if (mm) {
     if (strcmp(mm->fwVersion, fwCopy) != 0) sfModulesDirty = true;  // persist new fw
     strlcpy(mm->fwVersion, fwCopy, sizeof(mm->fwVersion));
+    if (board && mm->board != board) { mm->board = board; sfModulesDirty = true; }
     // A clean version/all reply parsed for this ID -> the duplicate-ID suspicion
     // (if any) is resolved; reset the heuristic.
     mm->dupRejectCount = 0;
@@ -1517,9 +1755,9 @@ void sfParseResponse(const uint8_t* data, size_t len) {
       *colon = 0;
       const char* sn = tmp;
       int newId = atoi(colon + 1);
-      if (!sfValidSN(sn)) {
-        DBG("[SF] rejecting ack with corrupt SN: %s\n", sn);
-      sfParseRejects++;
+      if (!sfValidSN(sn) || newId < 0 || newId > 254) {
+        DBG("[SF] rejecting ack with corrupt SN or id: %s:%d\n", sn, newId);
+        sfParseRejects++;
         return;
       }
       xSemaphoreTake(sfMutex, portMAX_DELAY);
@@ -1553,7 +1791,13 @@ void sfParseResponse(const uint8_t* data, size_t len) {
   int  idLen = 0;
   while (*p && isdigit((unsigned char)*p) && idLen < 7) idStr[idLen++] = *p++;
   if (idLen == 0) return;
-  uint8_t id = (uint8_t)atoi(idStr);
+  // 0..254, or it is not a module. The id used to be cut to a byte unchecked: "m300..." was
+  // filed under module 44, and "m255..." -- 255 being the registry's own marker for "no id,
+  // look it up by serial" -- went on to strcmp() a NULL serial and took the bus task, and the
+  // board, down with it. One garbled frame on a wall without checksums was enough.
+  const int idNum = atoi(idStr);
+  if (idNum > 254) { sfParseRejects++; return; }
+  uint8_t id = (uint8_t)idNum;
 
   xSemaphoreTake(sfMutex, portMAX_DELAY);
   SFModule* m = sfUpsert(id, NULL);
@@ -1563,27 +1807,35 @@ void sfParseResponse(const uint8_t* data, size_t len) {
   if (!m) return;
   char cmd = *p++;
 
-  // Version response: m<id>v:<version>:<moduleId>:<serialNumber>
-  // Legacy format m<id>v:<version> also accepted.
+  // Version response: m<id>v:<version>:<moduleId>:<serialNumber>:<board>
+  // <board> is the driver board (4 or 5), APPENDED in module firmware v36 -- an older module
+  // ends at the serial number, and the field is simply absent. Legacy m<id>v:<version> also
+  // accepted.
   if (cmd == 'v' && *p == ':') {
     char verBuf[64];
     strlcpy(verBuf, p + 1, sizeof(verBuf));
     // Strip trailing whitespace/newlines
     for (int k = (int)strlen(verBuf)-1; k >= 0 && (verBuf[k] == '\n' || verBuf[k] == '\r' || verBuf[k] == ' '); k--)
       verBuf[k] = '\0';
-    // Split into up to 3 fields on ':'
-    char* field[3] = {nullptr, nullptr, nullptr};
+    // Split into up to 4 fields on ':'
+    char* field[4] = {nullptr, nullptr, nullptr, nullptr};
     field[0] = verBuf;
     int fi = 1;
-    for (char* cp = verBuf; *cp && fi < 3; cp++) {
+    for (char* cp = verBuf; *cp && fi < 4; cp++) {
       if (*cp == ':') { *cp = '\0'; field[fi++] = cp + 1; }
     }
     int reportedId = (field[1] && field[1][0]) ? atoi(field[1]) : -1;
     char fwCopy[8] = "?";
     if (field[0] && field[0][0]) strlcpy(fwCopy, field[0], sizeof(fwCopy));
+    // One digit, and nothing else: a garbled tail leaves the board unknown rather than
+    // inventing a board number. Not range-checked against {4,5} on purpose -- a later board
+    // should show up in the dashboard without the gateway needing to learn about it first.
+    uint8_t board = 0;
+    if (field[3] && field[3][0] >= '1' && field[3][0] <= '9' && field[3][1] == '\0')
+      board = (uint8_t)(field[3][0] - '0');
     // Validate + write fwVersion/serial under the lock (re-finds the entry by id,
     // collapses any duplicate-serial record). A corrupt SN rejects the frame.
-    if (!sfApplyVersionFields((uint8_t)id, fwCopy, field[2])) {
+    if (!sfApplyVersionFields((uint8_t)id, fwCopy, field[2], board)) {
       DBG("[SF] rejecting corrupt version response for module %d (sn:%s)\n",
           id, field[2] ? field[2] : "");
       sfParseRejects++;
@@ -1771,16 +2023,23 @@ void sfParseResponse(const uint8_t* data, size_t len) {
     char qb[48];
     strlcpy(qb, p + 1, sizeof(qb));
     for (int k = (int)strlen(qb)-1; k >= 0 && (qb[k]=='\n'||qb[k]=='\r'||qb[k]==' '); k--) qb[k] = 0;
-    char* qf[5] = {0}; qf[0] = qb; int qi = 1;
-    for (char* cp = qb; *cp && qi < 5; cp++) { if (*cp == ':') { *cp = 0; qf[qi++] = cp + 1; } }
+    char* qf[9] = {0}; qf[0] = qb; int qi = 1;
+    for (char* cp = qb; *cp && qi < 9; cp++) { if (*cp == ':') { *cp = 0; qf[qi++] = cp + 1; } }
     int rc   = (qf[0] && qf[0][0]) ? atoi(qf[0]) : 0;
     int boot = (qf[1] && qf[1][0]) ? atoi(qf[1]) : 0;
     int vcc  = (qf[2] && qf[2][0]) ? atoi(qf[2]) : 0;
     int ee   = (qf[3] && qf[3][0]) ? atoi(qf[3]) : 0;
     int cur  = (qf[4] && qf[4][0]) ? atoi(qf[4]) : -1;
-    DBG("[SF] Module %d diag Q: rc=%d boot=%d vcc=%d ee=%d cur=%d\n", id, rc, boot, vcc, ee, cur);
+    // v33 appends three bus counters; older firmware stops at curIndex and leaves these -1.
+    int rxOv = (qf[5] && qf[5][0]) ? atoi(qf[5]) : -1;
+    int bcS  = (qf[6] && qf[6][0]) ? atoi(qf[6]) : -1;
+    int bcL  = (qf[7] && qf[7][0]) ? atoi(qf[7]) : -1;
+    int crcE = (qf[8] && qf[8][0]) ? atoi(qf[8]) : -1;   // v33: checksummed frames it dropped
+    DBG("[SF] Module %d diag Q: rc=%d boot=%d vcc=%d ee=%d cur=%d rxOv=%d bcast=%d/%d\n",
+        id, rc, boot, vcc, ee, cur, rxOv, bcS, bcL);
     if (gDiag.q.waitId == (int)id) {
       gDiag.q.reset = rc; gDiag.q.boot = boot; gDiag.q.vcc = vcc; gDiag.q.ee = ee; gDiag.q.cur = cur;
+      gDiag.q.rxOv = rxOv; gDiag.q.bcSent = bcS; gDiag.q.bcLate = bcL; gDiag.q.crcErr = crcE;
       gDiag.q.ts = millis();
     }
     char payload[96];

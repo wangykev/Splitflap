@@ -1,9 +1,10 @@
 openapi: 3.1.0
 info:
   title: Split-Flap Gateway API
-  version: "3.5"
+  version: "3.3.0"
   description: |
-    REST API for the ESP32-S3 Split-Flap Gateway firmware (firmware v3.5).
+    REST API for the ESP32-S3 Split-Flap Gateway firmware. The version above is the
+    API version `GET /api/capabilities` reports as `api`; the firmware has its own.
 
     **Base URL:** `http://<gateway-ip>` — replace with the gateway's IP
     (shown on the Status page), or use `http://192.168.4.1` when connected to
@@ -166,6 +167,10 @@ paths:
         row*cols + col == module id). Each cell is the tracked character, "?" if
         a module is present but its character is unknown (e.g. after a home or an
         index set), or null if no module has that id. Drives the Live Display.
+
+        Cells report what the flap SHOWS (v4.1): a symbol flap as its symbol (♥ ↑ ↓
+        ☺ ← →) and the double-quote flap as '"', never the letters the wire uses.
+        Colour flaps stay their letters, as on the Matrix Gateway.
       responses:
         "200":
           description: Display state
@@ -233,6 +238,17 @@ paths:
                     letters work), then sends m<id>-<char>; the module firmware maps
                     the byte to a flap index. Characters with no Windows-1252
                     representation are rejected.
+
+
+                    SYMBOL FLAPS (v4.1): ♥ ↑ ↓ ☺ ← → are resolved against THAT module's
+                    reel — the reel's own flap when it carries one, otherwise a stand-in
+                    that reel does have (♥→*, ☺→:, ↓→V) or a blank. Their emoji forms
+                    (❤ ⬆ ⬇ ⬅ ➡ 🙂 😊 😀) and a trailing variation selector are accepted
+                    too. A TYPED letter is never a symbol: 'h' is still an H. With
+                    id:-1 the gateway broadcasts one frame only when every reel is known
+                    and resolves the request the same way; otherwise it sends each module
+                    its own frame, so a module with no heart on its reel gets the stand-in
+                    rather than an 'h' it would have to home on.
             example: { id: 5, char: "A" }
       responses:
         "200":
@@ -269,6 +285,14 @@ paths:
     post:
       tags: [Modules]
       summary: Send a text string across sequential modules
+      description: |
+        One glyph per module, left to right from `start`. A euro sign, an accented
+        letter and a symbol flap (♥ ↑ ↓ ☺ ← →, v4.1) are each ONE module however many
+        UTF-8 bytes they arrived as, and each character is resolved against the reel of
+        the module it lands on — so a module without the heart printed on it shows the
+        stand-in (* : V) or a blank and the text does not shift around it.
+
+        `chars` in the reply is the number of MODULES written (bytes of UTF-8 before v4.1).
       requestBody:
         required: true
         content:
@@ -317,7 +341,15 @@ paths:
         errors (bad JSON, missing `cells`) return 400.
 
         Sent by CHARACTER (`m<id>-<char>`), so each module resolves the byte against its own
-        reel; lowercase folds to uppercase and `"` reaches the double-quote flap.
+        reel; lowercase folds to uppercase and `"` reaches the double-quote flap — the byte
+        itself on a reel printed with it, else the reel's borrowed 'q'.
+
+        SYMBOL FLAPS (v4.1): `{"ch":"♥"}` reaches the heart flap. Here, unlike the text
+        paths, a module whose reel the gateway KNOWS and which has no heart is SKIPPED
+        rather than shown a stand-in — the caller asked for a heart, and this endpoint's
+        leniency is about skipping, not approximating. `/api/capabilities` says which
+        symbols the wall carries (`pictographs`) and which every module carries
+        (`charset.common`).
       requestBody:
         required: true
         content:
@@ -665,6 +697,9 @@ paths:
                       vcc:        { type: integer, description: "Supply voltage in millivolts (0 if unavailable)", example: 3320 }
                       eepromOk:   { type: integer, description: "1 if the EEPROM write-verify passed, else 0", example: 1 }
                       curIndex:   { type: integer, description: "Current flap index (-1 unknown / needs homing, -2 released)", example: 5 }
+                      rxOverflows: { type: integer, description: "Module firmware v33+: times the module's receive ring overflowed, which happens only while it is busy. -1 = not reported", example: -1 }
+                      bcastSent:   { type: integer, description: "v33+: staggered broadcast replies the module actually sent -- compare with what the gateway heard to tell a reply lost on the wire from one never sent. -1 = not reported", example: -1 }
+                      bcastLate:   { type: integer, description: "v33+: how many of those went out after their slot. -1 = not reported", example: -1 }
               examples:
                 captured: { value: { ok: true, started: true, id: 11, q: { resetCause: 1, bootCount: 3, vcc: 3320, eepromOk: 1, curIndex: 5 } } }
                 noQ:      { value: { ok: true, started: true, id: 11, q: null } }
@@ -902,9 +937,14 @@ paths:
         module applies the change silently (no reply); read it back with
         `/api/flap/all`. `charSet` is UTF-8 and may use any character representable
         in Windows-1252 — ASCII plus the euro sign and Western-European
-        accents; the gateway transcodes it to the single-byte form the bus uses.
-        Characters with no Windows-1252 representation are rejected. At most 64
-        characters. On modules older than v31 the command is ignored.
+        accents — and, from v4.1, the six SYMBOL flaps ♥ ↑ ↓ ☺ ← → (their emoji
+        forms and a trailing variation selector are accepted too). The gateway
+        transcodes it to the single-byte form the bus uses, storing each symbol as
+        its wire letter (h u d s l t) — which is what the module keeps and reports,
+        and what `/api/capabilities` turns back into symbols. A typed letter stays a
+        letter. Characters with no representation are rejected. The limit is 64
+        FLAPS: a symbol is one flap however many UTF-8 bytes it arrived as. On
+        modules older than v31 the command is ignored.
       requestBody:
         required: true
         content:
@@ -921,6 +961,9 @@ paths:
                 value: { id: 5, flapCount: 40, charSet: " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" }
               euroAndAccents:
                 value: { id: 5, charSet: " ABCDEFGHIJKLMNOPQRSTUVWXYZ€éàüöç0123456789" }
+              symbolFlaps:
+                summary: A reel with a heart and two arrows printed on three of its flaps
+                value: { id: 5, charSet: " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789♥↑↓" }
               broadcast:
                 value: { id: -1, charSet: " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789" }
               bySerial:
@@ -1135,10 +1178,23 @@ paths:
         is. The `chars` of a set is the reel VERBATIM, in flap-index order, because a client
         addressing a flap by index needs the positions rather than the alphabet.
 
-        TWO TRANSLATIONS apply to the character sets, matching what the gateway does when it
+        THREE TRANSLATIONS apply to the character sets, matching what the gateway does when it
         resolves a frame: the seven colour flaps (r o y g b p w) are reported under `colors` by
-        name and kept OUT of the character sets, and 'q' -- which the classic reel borrows for
-        the double-quote flap -- is reported as '"'.
+        name and kept OUT of the character sets; 'q' -- which the classic reel borrows for the
+        double-quote flap -- is reported as '"'; and the six SYMBOL flaps (v4.1), carried on the
+        wire as h u d s l t, are reported as the symbols themselves (♥ ↑ ↓ ☺ ← →). The letters
+        never appear in `union` or `common`.
+
+        `pictographs` (v4.1) names the symbols SOME reel carries, the way `colors` does for the
+        colour flaps, using the companion's own pictograph names. `spelling` (v4.1) gives, for
+        every character whose byte on the WIRE differs from the character itself, the byte to
+        send on the raw paths (`POST /api/rs485/send`, MQTT `<prefix>/send`): the six symbols
+        always, plus `"` -> `q` when the wall's reels borrow that byte and none prints '"'
+        itself. The `symbols` feature token means all three of these are present.
+
+        `sets[].chars` is unaffected by any of this: a reel is reported exactly as the module
+        stores it, symbol letters and colour codes included, because that is what flap INDEX
+        addressing works against.
 
         On the Split-Flap Gateway a module only reports its reel from firmware v31. `assumed`
         lists modules too old to report one, whose reel is taken to be the firmware's built-in
@@ -1155,7 +1211,7 @@ paths:
                 properties:
                   product:  { type: string, example: "Split-Flap Gateway" }
                   fw:       { type: string, example: "3.7.0" }
-                  api:      { type: string, example: "3.1.0" }
+                  api:      { type: string, example: "3.3.0" }
                   grid:
                     type: object
                     properties:
@@ -1168,6 +1224,20 @@ paths:
                     description: "The colour flaps the wall actually has, by name. A custom reel with no colour codes reports none."
                     items: { type: string }
                     example: ["red","orange","yellow","green","blue","purple","white"]
+                  pictographs:
+                    type: array
+                    description: "(v4.1) The symbol flaps SOME reel carries, by name, in table order. Empty on a wall with none."
+                    items: { type: string, enum: [heart, up, down, smiley, left, right] }
+                    example: ["heart","up","down"]
+                  spelling:
+                    type: object
+                    description: >
+                      (v4.1) For each character whose byte on the wire differs from the character
+                      itself, the byte to send on the raw frame paths. Always the six symbols;
+                      plus '"' -> 'q' when the wall's known reels borrow that byte and none
+                      prints '"' directly.
+                    additionalProperties: { type: string }
+                    example: { "♥": "h", "↑": "u", "↓": "d", "☺": "s", "←": "l", "→": "t", "\"": "q" }
                   charset:
                     type: object
                     properties:
@@ -1195,7 +1265,7 @@ paths:
                   features:
                     type: array
                     items: { type: string }
-                    example: ["colors","index","batch","quiet","maintenance","ha","ota","flapconfig"]
+                    example: ["colors","index","batch","quiet","maintenance","ha","ota","flapconfig","symbols"]
 
   /api/status:
     get:
@@ -1607,6 +1677,70 @@ paths:
         "400":
           $ref: "#/components/responses/BadRequest"
 
+  /api/perf:
+    get:
+      tags: [Status]
+      summary: Who is asking the web server for what, and what it costs (v4.4)
+      description: |
+        The gateway serves one connection at a time, so a slow dashboard is one of three
+        things -- too many requests, an expensive request, or a client that connected and said
+        nothing -- and from outside they look the same. This counts all three from inside.
+        Figures cover the window since boot or since the last `?reset=1`.
+
+        `ms` is time inside the handler, including writing the response to the socket; it does
+        not include the connection set-up, which is where a slow radio link shows. A handler
+        that takes 4 ms and a request that takes 150 ms means the link, not the firmware.
+      parameters:
+        - name: reset
+          in: query
+          required: false
+          description: Present (any value) to start a new window after this response
+          schema: { type: string }
+      responses:
+        "200":
+          description: The current window
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:             { type: boolean }
+                  windowMs:       { type: integer, description: "Length of the window" }
+                  requests:       { type: integer }
+                  handlerMs:      { type: integer, description: "Total time spent inside handlers" }
+                  silentClientMs: { type: integer, description: "Time the server was held by a client that had connected and not (yet) sent a request" }
+                  unattributed:   { type: integer, description: "Requests to endpoints beyond the 40 the table holds" }
+                  heap:           { type: integer, description: "Free internal heap now, bytes" }
+                  minHeap:        { type: integer, description: "Its lowest since boot" }
+                  maxBlock:       { type: integer, description: "Largest single allocation possible now" }
+                  loopGapMs:
+                    type: object
+                    description: "Longest gap between two passes of each task's main loop in this window: how long that task was stuck somewhere"
+                    properties:
+                      rs485:   { type: integer }
+                      web:     { type: integer }
+                      network: { type: integer }
+                      rtc:     { type: integer }
+                  endpoints:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        uri:     { type: string }
+                        n:       { type: integer, description: "Requests" }
+                        ms:      { type: integer, description: "Total handler time" }
+                        max:     { type: integer, description: "Slowest single request" }
+                        lowHeap: { type: integer, description: "The heap's all-time low if a request to this endpoint set it, else 0" }
+                  clients:
+                    type: array
+                    description: "Up to eight client addresses. A reverse proxy shows as one client"
+                    items:
+                      type: object
+                      properties:
+                        ip: { type: string }
+                        n:  { type: integer }
+                        ms: { type: integer }
+
   /api/bus/incidents:
     get:
       tags: [Status]
@@ -1649,6 +1783,9 @@ paths:
                             R a frame arrived complete and would not parse;
                             L a long read answered only when asked a second time;
                             M a long read was never answered;
+                            C a checksummed frame arrived and its checksum did not match;
+                            F a long read failed and a shorter one succeeded in its place
+                              -- the module is there, its reply LENGTH is the problem;
                             X two modules appear to share one id
                         cmd:   { type: string, description: "The command in flight (v, Q, d, A, W)" }
                         bytes: { type: integer, description: "Size involved, when known" }
@@ -1795,6 +1932,168 @@ paths:
                   minutes: { type: integer, example: 10 }
         "409":
           description: Something else owns the bus
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /api/modules/firmware:
+    get:
+      tags: [Status]
+      summary: The stored module-firmware image (v4.0)
+      description: |
+        What is stored for updating the MODULES' own firmware over the bus, plus the state of
+        any run in progress. The same body `/status` returns.
+      responses:
+        "200":
+          description: Image and run state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModFwStatus" }
+    put:
+      tags: [Status]
+      summary: Store a module-firmware image (v4.0)
+      description: |
+        The body is `firmware-update.bin` from a module firmware release: exactly 15,360 bytes,
+        240 pages of 64. The gateway checks the image's own CRC (its last two bytes, big-endian,
+        over everything before them) and refuses anything that does not match, so a truncated
+        upload cannot be sent to a wall.
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "200": { description: Stored, content: { application/json: { schema: { $ref: "#/components/schemas/ModFwStatus" } } } }
+        "400": { description: Not 15,360 bytes }
+        "409": { description: An update is running }
+        "422": { description: The image's CRC does not check out }
+    delete:
+      tags: [Status]
+      summary: Forget the stored image (v4.0)
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+
+  /api/modules/firmware/start:
+    post:
+      tags: [Status]
+      summary: Update the modules' firmware over the bus (v4.0)
+      description: |
+        Runs the procedure in the module firmware's BUS-UPDATE.md: into update mode with a
+        checksummed command, confirm, broadcast the 240 pages once for every module at a time,
+        ask each module which pages it actually wrote, resend only the gaps, then go. Modules
+        older than v35 have no bootloader and are skipped. The bus is held EXCLUSIVELY for the
+        run, which takes about 75 seconds however many modules are being updated.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items: { type: integer, minimum: 0, maximum: 254 }
+                  description: Modules to update. Omit, or send {}, for every eligible module.
+      responses:
+        "200": { description: Started, content: { application/json: { schema: { $ref: "#/components/schemas/ModFwStatus" } } } }
+        "409": { description: No image, nothing eligible, or the bus is busy }
+
+  /api/modules/firmware/status:
+    get:
+      tags: [Status]
+      summary: Progress of a module firmware update (v4.0)
+      responses:
+        "200": { description: Progress, content: { application/json: { schema: { $ref: "#/components/schemas/ModFwStatus" } } } }
+
+  /api/modules/firmware/cancel:
+    post:
+      tags: [Status]
+      summary: Stop an update after the current frame (v4.0)
+      description: >
+        A module that has not been told to start an image stays in its bootloader waiting for
+        one; run the update again, or send it back to its existing firmware.
+      responses:
+        "200": { $ref: "#/components/responses/Ok" }
+        "409": { description: No update running }
+
+  /api/modules/firmware/probe:
+    post:
+      tags: [Status]
+      summary: Ask one module's bootloader how it is doing (v4.0)
+      description: >
+        A module running its firmware does not answer, which is itself the answer. One in
+        update mode reports the bootloader version, why it is there, which image it holds, how
+        many of its 240 pages, and (v4.3) its driver board -- 4, or 5 from the v5 board's
+        bootloader, which is version 2 and says so in a status frame one byte longer.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: integer, minimum: 0, maximum: 254 }
+      responses:
+        "200":
+          description: What the module said, or that it said nothing
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:           { type: boolean }
+                  id:           { type: integer }
+                  inBootloader: { type: boolean }
+                  bootloader:   { type: integer, description: "Bootloader version" }
+                  reason:       { type: integer, description: "1 it was asked to, 2 it has no valid firmware" }
+                  flags:        { type: integer, description: "Bit 0: the last go did not start an image" }
+                  imageCrc:     { type: string, description: "The image it is receiving; FFFF = none" }
+                  pagesHeld:    { type: integer }
+                  pagesNeeded:  { type: integer, example: 240 }
+                  note:         { type: string }
+
+  /api/flap/stats:
+    post:
+      tags: [Status]
+      summary: A module's own snapshot, without starting a self-test (v3.18)
+      description: |
+        The same figures as `/api/flap/diag` returns, but it does not start a Hall test with
+        them, so nothing moves. Since module firmware v33 the snapshot carries the counters that
+        matter for chasing a bus problem: receive overflows, broadcast replies sent and how many
+        went out late, and checksummed frames the module dropped as corrupt. Comparing
+        `bcastSent` with what the gateway heard separates a reply lost on the wire from one that
+        was never sent. Older firmware reports the four as -1.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: integer, minimum: 0, maximum: 254 }
+      responses:
+        "200":
+          description: The snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:          { type: boolean }
+                  id:          { type: integer }
+                  resetCause:  { type: integer }
+                  bootCount:   { type: integer }
+                  vcc:         { type: integer, description: "Supply in millivolts" }
+                  eepromOk:    { type: integer }
+                  curIndex:    { type: integer }
+                  rxOverflows: { type: integer }
+                  bcastSent:   { type: integer }
+                  bcastLate:   { type: integer }
+                  crcErrors:   { type: integer }
+        "504":
+          description: The module did not answer
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -2183,7 +2482,7 @@ paths:
   /api/config/settings:
     post:
       tags: [Config]
-      summary: Save timezone, serial debug, or OTA password
+      summary: Save timezone, the network name, serial debug, or the upload password
       description: Send only the fields you want to change. Each takes effect immediately.
       requestBody:
         required: true
@@ -2202,10 +2501,15 @@ paths:
                 restoreOnBoot: { type: boolean, example: true, description: "Replay the stored calibration backup on every boot (v3.12). Takes effect at the next boot" }
                 restoreDelay:  { type: integer, minimum: 0, maximum: 600, example: 10, description: "Seconds after boot before that replay starts (v3.12)" }
                 stepMs:        { type: integer, minimum: 0, maximum: 100, example: 25, description: "Default per-module cascade pacing in ms (v3.13), reported on GET /api/config for clients to use as their step_ms" }
+                mdnsName:      { type: string, maxLength: 31, example: "splitflap", description: "The name on the local network (v4.2). One DNS label: lowercase letters, digits and hyphens, starting and ending on a letter or digit. Upper case is folded; blank resets to \"splitflap\". Applied at once -- no reboot -- and the reply carries the effective name and URL. 400 if the name is unusable. Two gateways on one network must not share one" }
             examples:
               timezone:
                 value:
                   posixTZ: "EST5EDT,M3.2.0,M11.1.0"
+              network_name:
+                summary: "Rename the gateway; the reply carries ok, mdnsName and url"
+                value:
+                  mdnsName: "hallway-wall"
               ntp_server:
                 value:
                   ntpServer: "time.google.com"
@@ -2351,6 +2655,44 @@ components:
           description: "What the nav shows for it"
           example: "Calibration"
 
+    ModFwStatus:
+      type: object
+      description: The stored module-firmware image and the state of any update (v4.0).
+      properties:
+        ok:    { type: boolean }
+        state:
+          type: string
+          enum: [idle, entering, confirming, sending, verifying, going, checking, done, failed, cancelled]
+        targets:       { type: integer }
+        pass:          { type: integer, description: "Resend round, 1-based" }
+        pagesSent:     { type: integer }
+        pagesThisPass: { type: integer }
+        updated:       { type: integer, description: "Modules now running the new firmware" }
+        elapsed:       { type: integer, description: "ms" }
+        error:         { type: string }
+        skippedBoard:  { type: integer, description: "Modules left out of this run because they are a different driver board from the image (v4.3)", example: 3 }
+        image:
+          type: object
+          properties:
+            stored: { type: boolean }
+            bytes:  { type: integer, example: 15360 }
+            crc:    { type: string, example: "6E1C" }
+            valid:  { type: boolean }
+            version: { type: integer, description: "The firmware version the image holds, 0 when it cannot be told", example: 36 }
+            board:  { type: integer, description: "The driver board the image is for (v4.3): 4 or 5. An image built before module firmware v36 is untagged and reports 4 -- there was no other board then", example: 5 }
+            pages:  { type: integer, example: 240 }
+        modules:
+          type: array
+          items:
+            type: object
+            properties:
+              id:           { type: integer }
+              board:        { type: integer, description: "The module's driver board as this run understands it (v4.3): reported by the module, or 4 for one that does not report a board" }
+              from:         { type: integer, description: "The version it ran when the run started" }
+              to:           { type: integer, description: "What it reports afterwards; 0 = not back yet" }
+              inBootloader: { type: boolean }
+              pagesLeft:    { type: integer }
+
     BusHolds:
       type: object
       description: The bus holds in force (v3.15).
@@ -2424,8 +2766,9 @@ components:
         sn:          { type: string,  description: "Serial number hex string", example: "AABBCCDD11223344" }
         provisioned: { type: boolean, example: true }
         flapIndex:   { type: integer, description: "Last known flap index (-1 = unknown)", example: 1 }
-        flapChar:    { type: string,  description: "Last known displayed character", example: "A" }
+        flapChar:    { type: string,  description: "Last known displayed character -- what the flap SHOWS: a symbol flap as its symbol (v4.1), the double-quote flap as '\"', colour flaps as their letters", example: "A" }
         fwVersion:   { type: string,  description: "Firmware version string (empty for legacy v7-or-earlier modules, which do not answer the version command)", example: "12" }
+        board:       { type: integer, description: "The module's driver board (v4.3): 4, or 5 for the board whose RS-485 transceiver is on the hardware USART. 0 means it has not said -- only module firmware v36 and later reports it, in the tail of a version reply, and every module that does not is a v4", example: 5 }
         lastSeen:    { type: integer, description: "millis() of last activity (0 if not seen since boot; restored entries start at 0)", example: 45000 }
         lastSeenEpoch: { type: integer, description: "RTC wall-clock epoch (seconds) of last activity; survives reboot. 0 if the RTC clock has never been set.", example: 1781210380 }
         acked:       { type: boolean, description: "true once the module acknowledged provisioning (an acked module is, by definition, not legacy)", example: true }
@@ -2446,6 +2789,10 @@ components:
       type: object
       properties:
         uptime:    { type: integer, description: "Seconds since boot", example: 3842 }
+        rssi:      { type: integer, description: "Signal strength of the access point the gateway is joined to, in dBm; 0 when the station is down (v4.4)", example: -42 }
+        channel:   { type: integer, description: "WiFi channel of that access point (v4.4)", example: 6 }
+        bssid:     { type: string,  description: "That access point's address. On a network with several, this is which one the gateway chose -- the strongest it heard when it connected (v4.4)", example: "1c:6a:1b:11:ec:88" }
+        ps:        { type: integer, description: "Radio power-save mode: 0 = always on (the firmware's setting since v4.4), 1 or 2 = modem sleep, which adds a beacon interval to every round trip", example: 0 }
         psram:
           type: object
           description: "On-board PSRAM in bytes (v3.16). The large runtime buffers live here, which is what keeps internal RAM free for WiFi and an OTA upload."
@@ -2485,7 +2832,9 @@ components:
             rejects:   { type: integer, description: "Frames that arrived complete but would not parse", example: 0 }
             dropped:   { type: integer, description: "Frames discarded: longer than the receive buffer, or never terminated. Used to be silent", example: 0 }
             dropBytes: { type: integer, description: "Size of the most recently discarded frame", example: 0 }
-            maxLen:    { type: integer, description: "Longest complete frame received since boot (limit 768)", example: 447 }
+            maxLen:    { type: integer, description: "Longest complete frame received since boot (limit 1024)", example: 447 }
+            crcOk:     { type: integer, description: "Checksummed frames verified (v3.18; module firmware v33+)", example: 165 }
+            crcFail:   { type: integer, description: "Checksummed frames dropped because the wire corrupted them. Should be zero", example: 0 }
             lock:
               type: object
               description: >
@@ -2542,3 +2891,4 @@ components:
         restoreOnBoot: { type: boolean, description: "Replay the stored calibration backup on every boot (v3.12)", example: false }
         restoreDelay:  { type: integer, description: "Seconds after boot before that replay starts (v3.12)", example: 10 }
         stepMs:        { type: integer, minimum: 0, maximum: 100, description: "Default per-module cascade pacing in ms (v3.13). Stored and reported for clients -- the companion uses it as its default step_ms; the gateway does not pace its own sends by it", example: 15 }
+        mdnsName:      { type: string, example: "splitflap", description: "The name the gateway answers to on the local network (v4.2): http://<mdnsName>.local, and the hostname espota and the Arduino IDE discover. Default \"splitflap\"" }

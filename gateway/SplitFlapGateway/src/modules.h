@@ -16,6 +16,12 @@ struct SFModule {
   int      flapIndex;        // last known flap index (-1 = unknown)
   char     flapChar;         // last known displayed char (0 = unknown)
   char     fwVersion[8];     // firmware version string
+  // The DRIVER BOARD this module is built on, from the tail of a 'v' reply (module firmware
+  // v36+): 4 is Adam's board, 5 the one whose RS-485 transceiver sits on the hardware USART.
+  // 0 means not known -- firmware older than v36 does not say, and every such module is a v4
+  // by construction, since the v5 board has no image before v36. Persisted: only a 'v' reply
+  // carries it, and the 'A' dump the registry otherwise lives on does not.
+  uint8_t  board;            // 4, 5, ... or 0 = not known
   unsigned long lastSeen;    // millis() of last activity (resets on reboot)
   unsigned long lastSeenEpoch; // RTC wall-clock epoch of last activity (survives reboot)
   // Quiet Time: the display the host last requested while quiet (not yet shown).
@@ -89,6 +95,7 @@ struct PersistedModule {
   // 45-module wall, and it changes only when someone deliberately changes it ('N').
   int16_t       flapCount;                    // -99 = not known
   char          flapChars[SF_MAX_FLAPS + 1];  // "" = not known
+  uint8_t       board;                        // driver board (4, 5, ...), 0 = not known
 };
 
 struct ModulesFileHeader {
@@ -132,10 +139,18 @@ struct CalibState {                  // calibration: sync steps/rev + async job
   volatile unsigned long jobDeadline = 0;          // millis() timeout
 };
 
+/* The v33 module firmware appends three counters to the Q snapshot:
+     m<id>Q:<resetCause>:<bootCount>:<vcc>:<eepromOk>:<curIndex>:<rxOverflows>:<bcastSent>:<bcastLate>
+   They are the module's own account of what the bus did to it: how often its receive ring
+   overflowed (which, per the firmware authors, only happens while it is busy), how many
+   staggered broadcast replies it actually sent, and how many went out late. Comparing
+   bcastSent against what the gateway heard separates "the reply was lost on the wire" from
+   "the module never sent one". -1 = not reported, which is every firmware before v33. */
 struct DiagState {                   // self-diagnostics (module fw v26+/v28+)
   // 'Q' snapshot -- instant, captured synchronously (no motor)
   struct { volatile int waitId = -1; volatile unsigned long ts = 0;
-           volatile int reset = 0, boot = 0, vcc = 0, ee = 0, cur = -1; } q;
+           volatile int reset = 0, boot = 0, vcc = 0, ee = 0, cur = -1;
+           volatile int rxOv = -1, bcSent = -1, bcLate = -1, crcErr = -1; } q;
   // 'T' Hall test -- motor ~2 revolutions
   struct { volatile int waitId = -1; volatile unsigned long ts = 0;
            volatile int code = -1, rising = 0, active = 0, falling = 0; } t;
@@ -313,8 +328,20 @@ void sfModulesPruneStale();
 void sfTrackChar(int addr, char c);
 void sfSendChar(int addr, char c);
 // The wire byte for a CP1252 byte (uppercase fold except colour codes; '"' -> 'q'), or 0 if it
-// is not a displayable flap glyph. Shared by sfSendChar and POST /api/display/cells.
+// is not a displayable flap glyph. Reel-independent: the fallback for a module the gateway has
+// no reel for. Prefer sfResolveFor() on any path that knows which module it is addressing.
 uint8_t sfResolveFlapByte(uint8_t b);
+// Copy module `id`'s flap set into `out` (SF_MAX_FLAPS+1 bytes). True if the gateway knows it
+// (reported, or assumed for a pre-v31 module); false leaves `out` empty. Takes sfMutex itself,
+// so never call it while holding that mutex.
+bool sfReelOf(int id, char* out);
+// The wire byte for one requested byte ON THAT MODULE: a symbol code (flapsym.h) becomes the
+// reel's letter, its stand-in or a blank; '"' reaches the reel's double-quote flap whichever
+// byte it is printed as; everything else is sfResolveFlapByte(). 0 = nothing showable.
+uint8_t sfResolveFor(int id, uint8_t b);
+// Send one ALREADY-RESOLVED wire byte (no folding, no reel lookup). For replaying a captured
+// frame, and for callers that resolved the byte themselves against a snapshot of the reels.
+void sfSendCharRaw(int addr, uint8_t b);
 void sfSendIndex(int addr, int idx);
 void sfHomeOffset(int addr, int steps);
 void sfSetTotalSteps(int addr, int steps);
@@ -339,13 +366,28 @@ void sfQueryVersion(int addr);
    until it sees one, so without this the next command addressed to it is what gets eaten and
    the module looks silent when it is only resyncing. Costs one byte. */
 void sfBusResync();
+/* True when this module's firmware verifies checksummed frames (v33+). The registry's version
+   is the source; an unknown version is treated as old, so nothing changes until a module has
+   actually told the gateway what it runs. */
+bool sfModuleChecksums(int id);
+/* Send one frame to a module, checksummed when that module verifies them and plain when it
+   does not. Use this for anything whose corruption costs something: reads, writes, restores.
+   Display content stays on the plain path -- five extra bytes on a six-byte command is 80%
+   more traffic for a frame the next update overwrites anyway. */
+void sfSendToModule(int id, const char* frame);
 bool sfSendAndCaptureDump(int id, const char* frame, unsigned long timeoutMs, char* out, size_t outLen,
                           volatile bool* abort = NULL);
 /* The same, but asks twice: a module that ate the first command while resyncing answers the
    second. `late` (optional) is set when only the retry worked -- worth recording, it means
-   something on the bus is overflowing module receivers. */
+   something on the bus is overflowing module receivers.
+   `alt` (optional) is a DIFFERENT frame for the second ask. That is how the serial-number
+   forms earn their keep: ask by id first, which is 6 bytes, and only if that goes unanswered
+   ask by serial number, which is 24 and cannot be answered by the wrong module. Addressing
+   everything by serial put 20 needless bytes on the bus for every read -- 78% of all command
+   bytes in a soak -- and every module on the wall has to receive them. */
 bool sfReadDump(int id, const char* frame, unsigned long timeoutMs,
-                char* out, size_t outLen, bool* late = NULL, volatile bool* abort = NULL);
+                char* out, size_t outLen, bool* late = NULL, volatile bool* abort = NULL,
+                const char* alt = NULL);
 bool sfSendAndCaptureQ(int id, unsigned long timeoutMs);
 bool sfSendVersionAndWait(int id, unsigned long timeoutMs, char* fwOut, size_t fwLen, char* snOut, size_t snLen, unsigned long* lastSeenOut);
 void sfDeprovision(int addr);

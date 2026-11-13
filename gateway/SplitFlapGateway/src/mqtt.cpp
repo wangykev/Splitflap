@@ -9,14 +9,14 @@
 // entity state, and handles inbound command topics in mqttCallback.
 // ---- file-private forward declarations ----
 static void mqttCallback(char* topic, byte* payload, unsigned int length);
-static void mqttEnqueue(const char* topic, const char* payload, size_t len);
+static void mqttEnqueue(const char* topic, const char* payload, size_t len, bool retain = false);
 
 /* ----------------------------------------------------------
    MQTT
 ---------------------------------------------------------- */
 // mqttTopic() removed -- all call sites use snprintf char arrays
 // Safe MQTT publish from any task -- enqueues for the network task to drain.
-static void mqttEnqueue(const char* topic, const char* payload, size_t len) {
+static void mqttEnqueue(const char* topic, const char* payload, size_t len, bool retain) {
   if (!mqttQMutex || !mqttQueue) return;
   if (xSemaphoreTake(mqttQMutex, pdMS_TO_TICKS(10)) != pdTRUE) return;
   int next = (mqttQHead + 1) % MQTT_Q_SIZE;
@@ -26,13 +26,14 @@ static void mqttEnqueue(const char* topic, const char* payload, size_t len) {
     memcpy(mqttQueue[mqttQHead].payload, payload, copy);
     mqttQueue[mqttQHead].payload[copy] = 0;
     mqttQueue[mqttQHead].len = copy;
+    mqttQueue[mqttQHead].retain = retain;
     mqttQHead = next;
   }
   xSemaphoreGive(mqttQMutex);
 }
 
 void mqttPublishMsg(const RS485Msg& m) {
-  if (!mqtt.connected()) return;
+  if (!gMqttUp) return;
   // Build the JSON with snprintf + a direct transcode -- no JsonDocument heap
   // allocation in this hot path. One worst-case buffer holds the whole message
   // so it is never truncated below MSG_MAX_BYTES: the fixed prefix is <=59 bytes, the
@@ -72,7 +73,7 @@ void mqttPublishSFEvent(const char* event, const char* payload) {
 }
 
 void mqttPublishStatus() {
-  if (!mqtt.connected()) return;
+  if (!gMqttUp) return;
   char timeBuf[24];
   rtcFormatTime(timeBuf, sizeof(timeBuf));
   char ip[20];
@@ -116,12 +117,12 @@ void mqttPublishStatus() {
 // independent of the module registry, so it is unaffected by provisioning state
 // or stale-probe eviction. A provisioned cell never written reads '?'.
 void mqttPublishDisplayState() {
-  if (!mqtt.connected()) return;
+  if (!gMqttUp) return;
   int cells = (int)cfg.gridRows * (int)cfg.gridCols;
   if (cells < 1) cells = 1;
   if (cells > MAX_MODULES) cells = MAX_MODULES;
-  // Each cell is one glyph; a Windows-1252 high byte (euro/accent) expands to up
-  // to 3 UTF-8 bytes, so size the buffer for the worst case.
+  // Each cell is one glyph; a Windows-1252 high byte (euro/accent) or a symbol
+  // flap expands to up to 3 UTF-8 bytes, so size the buffer for the worst case.
   static char str[MAX_MODULES * 3 + 1];   // static: single-caller (taskNetwork)
   int outLen = 0;
   if (xSemaphoreTake(sfMutex, pdMS_TO_TICKS(50)) == pdTRUE) {
@@ -131,7 +132,7 @@ void mqttPublishDisplayState() {
         SFModule* m = sfFindById((uint8_t)id);
         uc = (m && m->provisioned) ? (uint8_t)'?' : (uint8_t)' ';
       }
-      outLen += flapByteToUtf8(uc, str + outLen);       // ASCII -> 1 byte, high -> UTF-8
+      outLen += flapShownToUtf8(uc, str + outLen);      // what the module SHOWS: symbols, '"'
     }
     xSemaphoreGive(sfMutex);
   }
@@ -145,7 +146,7 @@ void mqttPublishDisplayState() {
 // the display string). Called on connect, on any toggle, and when display
 // tracking changes. No-op unless HA integration is enabled.
 void mqttPublishStateTopics() {
-  if (!mqtt.connected() || !cfg.haEnabled) return;
+  if (!gMqttUp || !cfg.haEnabled) return;
   char t[80];
   snprintf(t, sizeof(t), "%s/maintenance/state", cfg.mqttPrefix);
   mqttEnqueue(t, gMaintenanceMode ? "ON" : "OFF", gMaintenanceMode ? 2 : 3);
@@ -162,7 +163,7 @@ void mqttPublishStateTopics() {
 // share one device block (linked by the gateway's chip id) so they group under a
 // single HA device. Diagnostic sensors read fields from the <prefix>/status JSON.
 void haPublishDiscovery(bool enable) {
-  if (!mqtt.connected()) return;
+  if (!gMqttUp) return;
   char node[24];
   snprintf(node, sizeof(node), "sfgw_%08X", boardId32());
   const char* pfx = cfg.mqttPrefix;
@@ -183,8 +184,8 @@ void haPublishDiscovery(bool enable) {
     snprintf(pl, sizeof(pl),
       "{\"name\":\"Display\",\"uniq_id\":\"%s_display\",\"cmd_t\":\"%s/display/set\","
       "\"stat_t\":\"%s/display/state\",\"max\":255,%s}", node, pfx, pfx, dev);
-    mqttEnqueue(topic, pl, strlen(pl));
-  } else mqttEnqueue(topic, "", 0);
+    mqttEnqueue(topic, pl, strlen(pl), true);
+  } else mqttEnqueue(topic, "", 0, true);
 
   // 2) Maintenance mode switch.
   snprintf(topic, sizeof(topic), "homeassistant/switch/%s/maintenance/config", node);
@@ -192,8 +193,8 @@ void haPublishDiscovery(bool enable) {
     snprintf(pl, sizeof(pl),
       "{\"name\":\"Maintenance Mode\",\"uniq_id\":\"%s_maint\",\"cmd_t\":\"%s/maintenance/set\","
       "\"stat_t\":\"%s/maintenance/state\",\"ic\":\"mdi:wrench\",%s}", node, pfx, pfx, dev);
-    mqttEnqueue(topic, pl, strlen(pl));
-  } else mqttEnqueue(topic, "", 0);
+    mqttEnqueue(topic, pl, strlen(pl), true);
+  } else mqttEnqueue(topic, "", 0, true);
 
   // 3) Quiet Time switch.
   snprintf(topic, sizeof(topic), "homeassistant/switch/%s/quiet/config", node);
@@ -201,8 +202,8 @@ void haPublishDiscovery(bool enable) {
     snprintf(pl, sizeof(pl),
       "{\"name\":\"Quiet Time\",\"uniq_id\":\"%s_quiet\",\"cmd_t\":\"%s/quiet/set\","
       "\"stat_t\":\"%s/quiet/state\",\"ic\":\"mdi:volume-off\",%s}", node, pfx, pfx, dev);
-    mqttEnqueue(topic, pl, strlen(pl));
-  } else mqttEnqueue(topic, "", 0);
+    mqttEnqueue(topic, pl, strlen(pl), true);
+  } else mqttEnqueue(topic, "", 0, true);
 
   // 4) Diagnostic sensors -- all read the <prefix>/status JSON via value_template.
   //    Mirrors the [WDG] heartbeat: heap/min/maxblk/frag, parse rejects, the five
@@ -240,8 +241,8 @@ void haPublishDiscovery(bool enable) {
       if (d.dc)   p += snprintf(pl+p, sizeof(pl)-p, ",\"dev_cla\":\"%s\"", d.dc);
       if (d.ic)   p += snprintf(pl+p, sizeof(pl)-p, ",\"ic\":\"%s\"", d.ic);
       snprintf(pl+p, sizeof(pl)-p, ",%s}", dev);
-      mqttEnqueue(topic, pl, strlen(pl));
-    } else mqttEnqueue(topic, "", 0);
+      mqttEnqueue(topic, pl, strlen(pl), true);
+    } else mqttEnqueue(topic, "", 0, true);
   }
 
   printf("[HA] Discovery %s (node %s)\n", enable ? "published" : "removed", node);
@@ -419,11 +420,11 @@ static void mqttCallback(char* topic, byte* payload, unsigned int length) {
     bool hasChars = (charSet[0] != 0);
     if ((!hasCount && !hasChars) ||
         (hasCount && (flapCount < 1 || flapCount > SF_MAX_FLAPS))) return;
-    char enc[SF_MAX_FLAPS * 4 + 4];
+    char enc[SF_MAX_FLAPS + 1];
     if (hasChars) {
-      bool allMapped = true;
-      size_t n = utf8ToFlap(charSet, enc, sizeof(enc), &allMapped);
-      if (!allMapped || n == 0 || n > SF_MAX_FLAPS) return;   // unmappable / empty / too long
+      // The same validation the REST path uses, so a reel configured over MQTT is stored
+      // byte-for-byte the same -- symbol flaps included, which it stores as their wire letters.
+      if (sfValidateCharSet(charSet, enc, sizeof(enc))) return;   // unmappable / empty / too long
     }
     int   reqCount = hasCount ? flapCount : 0;
     const char* reqChars = hasChars ? enc : nullptr;
@@ -463,6 +464,7 @@ void mqttConnect() {
     : mqtt.connect(clientId, NULL, NULL, availT, 0, true, "offline");
   if (ok) {
     printf("[MQTT] Connected\n");
+    gMqttUp = true;       // before the discovery/state publishes below, which check it
     // Birth: mark available (retained).
     mqtt.publish(availT, "online", true);
     // Use char arrays not String to avoid heap fragmentation
