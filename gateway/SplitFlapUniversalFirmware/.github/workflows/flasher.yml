@@ -1,0 +1,97 @@
+# Builds the web flasher (flasher/) with the release's firmware bundled in,
+# publishes it on GitHub Pages, and attaches the same single file to the
+# release as flasher.html, for people who would rather run it from disk.
+# Since v36 a release has one image per driver board (firmware-v4.hex and
+# firmware-v5.hex) and the page carries both; up to v35 it had one, firmware.hex.
+#
+# Runs on every published release, when the flasher itself changes on main
+# (rebuilt with the latest release), and by hand (Actions → Web flasher → Run
+# workflow).  Needs Settings → Pages → Source set to "GitHub Actions".
+#
+# Pages keeps the first deployment of each commit and quietly ignores later
+# ones (it names a deployment after its commit), so running this again for a
+# commit that is already deployed changes nothing.
+name: Web flasher
+
+on:
+  release:
+    types: [published]
+  push:
+    branches: [main]
+    paths:
+      - 'flasher/**'
+      - '.github/workflows/flasher.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write     # attach flasher.html to the release
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # Which release to bundle, if any.  A push to main whose firmware version is
+  # not released yet is the merge of a release's pull request: deploying it
+  # now would leave the previous firmware on that commit for good.  Leave the
+  # commit to the release, whose own run follows with the new firmware.
+  pick:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.pick.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [ -z "$TAG" ]; then TAG=$(gh release view --json tagName --jq .tagName); fi
+          VERSION=$(sed -n 's/^const char FIRMWARE_VERSION\[\] = "\([0-9]*\)";.*/\1/p' src/SplitFlapUniversalFirmware.cpp)
+          if [ -z "$VERSION" ]; then
+            echo "::error::FIRMWARE_VERSION not found in src/SplitFlapUniversalFirmware.cpp"; exit 1
+          fi
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$VERSION" != "$TAG" ]; then
+            echo "::notice::v$VERSION is not released yet (the latest release is $TAG): its release deploys this commit"
+          else
+            echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: pick
+    if: needs.pick.outputs.tag != ''
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.pick.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Download the release firmware
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$TAG" --pattern 'firmware*.hex' --dir build
+      - name: Build the page
+        run: node flasher/build.mjs "$TAG" build/firmware*.hex --out flasher/dist
+      - name: Attach flasher.html to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp flasher/dist/index.html build/flasher.html
+          gh release upload "$TAG" build/flasher.html --clobber
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: flasher/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

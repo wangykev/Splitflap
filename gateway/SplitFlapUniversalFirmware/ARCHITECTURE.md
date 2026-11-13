@@ -13,6 +13,8 @@ A split-flap display is an array of character cells. Each cell is one self-conta
 - a **Hall-effect sensor** that detects a magnet on the reel to establish the home position,
 - a half-duplex **RS-485** transceiver, with the driver-enable (DE) line on a GPIO.
 
+**Two driver boards (v36+).** They differ only in where the transceiver is. On the **v4** (Adam's board, and earlier) it is on PA5 TX, PA7 RX and PA6 DE, which the USART cannot reach, so the bus is bit-banged with SoftwareSerial. On the **v5** it is on PA1/PA2/PA4, USART0's alternate pins, and the USART drives DE itself. A v5 grounds PC0, which a v4 leaves unconnected. One source builds both (`SF_BOARD`, from the `v4` and `v5` environments in `platformio.ini`), each with its own bootloader, and an image runs only on its own board. On either board the other board's bus pins go to the IO header, so neither build ever drives them, and PC0 is never an output (on a v5 that would short it to ground).
+
 All modules share one RS-485 bus. A controller (e.g. a Raspberry Pi or ESP) is the bus master; it sends commands and the addressed module(s) reply. Modules never initiate traffic except for unprovisioned-module advertisements (see *Provisioning*).
 
 The firmware's job is to accept addressed commands over the bus, move the reel to the requested flap, maintain its calibration in EEPROM, and report hardware health on request.
@@ -48,12 +50,13 @@ The firmware is a single C++ file (`src/SplitFlapUniversalFirmware.cpp`). Readin
 
 On reset, `setup()`:
 
-1. Captures the reset cause from `RSTCTRL.RSTFR` (so `Q` can later report *why* the module last reset) and increments a boot counter in EEPROM.
-2. Reads the ATtiny serial number from `SIGROW` and seeds the RNG from it.
-3. Loads configuration from EEPROM. The first byte is a magic value: `0x5D` is current; `0x5E` is a v8/v9-era layout that is loaded and then rewritten to `0x5D`; anything else is treated as a blank chip and initialised to defaults with module ID 255 (unprovisioned). Loaded calibration values are sanity-clamped. The configurable flap count and "is the character set custom?" flag are loaded here too (`loadFlapConfig`), falling back to the 64-flap default when never set.
-4. Waits a **staggered startup delay** so that a display full of modules powering on together does not all lurch at once (inrush). Provisioned modules use a delay derived from their ID; unprovisioned modules use a random delay seeded from their serial number.
-5. Enables the **2-second watchdog**.
-6. **Homes** (spin to the Hall sensor, then advance the stored offset to flap 0) or, if auto-home is disabled, restores the last saved step position from EEPROM.
+1. Checks the board (since v36). `boardFromStrap()` reads PC0 with its pull-up, twice: two clear lows mean a v5, anything else a v4. On the wrong board the firmware calls `enterBootloader()` before it has touched a pin, so the module waits in update mode for the right image instead of driving the other board's IO header.
+2. Captures the reset cause (so `Q` can later report *why* the module last reset) and increments a boot counter in EEPROM. megaTinyCore's startup has already read and cleared `RSTCTRL.RSTFR` and left the bits in `GPIOR0`, which is what the firmware reads; before v35 it read `RSTFR` and so always got 0. Before any of this, since v35, the [bootloader](bootloader/README.md) has checked the firmware image and started it.
+3. Reads the ATtiny serial number from `SIGROW` and seeds the RNG from it.
+4. Loads configuration from EEPROM. The first byte is a magic value: `0x5D` is current; `0x5E` is a v8/v9-era layout that is loaded and then rewritten to `0x5D`; anything else is treated as a blank chip and initialised to defaults with module ID 255 (unprovisioned). Loaded calibration values are sanity-clamped. The configurable flap count and "is the character set custom?" flag are loaded here too (`loadFlapConfig`), falling back to the 64-flap default when never set.
+5. Waits a **staggered startup delay** so that a display full of modules powering on together does not all lurch at once (inrush). Provisioned modules use a delay derived from their ID; unprovisioned modules use a random delay seeded from their serial number.
+6. Enables the **2-second watchdog**.
+7. **Homes** (spin to the Hall sensor, then advance the stored offset to flap 0) or, if auto-home is disabled, restores the last saved step position from EEPROM.
 
 ## Main loop and the command parser
 
@@ -69,9 +72,40 @@ The parser uses fixed accumulator buffers and explicit states rather than readin
 
 ### Surviving a busy module
 
-Bytes are received by SoftwareSerial's interrupt into a 128-byte ring (raised from the 64-byte default via `-D_SS_MAX_RX_BUFF=128` in `platformio.ini`, so every `N` flap-set frame fits even when the module cannot drain it). While the firmware is inside a multi-second move, calibration, or EEPROM burst it does not drain the ring, and anything beyond its capacity is dropped. The danger is not the lost bytes but the *splice*: the head of the cut frame followed by the tail of a later one, which a naive parser would happily commit to EEPROM as a truncated character set or flap map. `loop()` therefore checks SoftwareSerial's overflow flag before every byte it reads (the blocking work is usually the handler of the byte just parsed, so a once-per-pass check would miss it). If the flag is set, the ring is still full and everything in it is from before the gap — complete frames first, then the head of the one frame that was cut — so those bytes are parsed normally, but once the last of them is consumed any frame still open is abandoned (`resetParser()`) and everything up to the next terminator is discarded. A reply's post-transmit drain (`txEnd`) applies the same rule if it finds the flag set, since the drain has just thrown away the cut frame's head. This also fixes a display-level symptom on large walls: a full-wall update streams more bytes than the ring holds while the first modules are already moving, and the splice could read as a valid frame for the wrong module (`m1` from one frame plus `3-C` from another). A catch-all 200 ms idle timeout also resets *any* parser state, so a lone `m` from bus noise or a lost terminator can never leave the parser waiting to swallow the next frame's bytes into the current field.
+Bytes are received by SoftwareSerial's interrupt (on the v5, by the `UsartBus` class's USART receive interrupt; see below) into a 128-byte ring (raised from the 64-byte default via `-D_SS_MAX_RX_BUFF=128` in `platformio.ini`, so every `N` flap-set frame fits even when the module cannot drain it). While the firmware is inside a multi-second move, calibration, or EEPROM burst it does not drain the ring, and anything beyond its capacity is dropped. The danger is not the lost bytes but the *splice*: the head of the cut frame followed by the tail of a later one, which a naive parser would happily commit to EEPROM as a truncated character set or flap map. `loop()` therefore checks SoftwareSerial's overflow flag before every byte it reads (the blocking work is usually the handler of the byte just parsed, so a once-per-pass check would miss it). If the flag is set, the ring is still full and everything in it is from before the gap — complete frames first, then the head of the one frame that was cut — so those bytes are parsed normally, but once the last of them is consumed any frame still open is abandoned (`resetParser()`) and what follows is discarded up to the next terminator, or until the bus has been silent for `RX_RESYNC_GAP_MS` (5 ms). A frame's bytes arrive back to back, so that silence means any spliced tail is over; in v32 the discard instead lasted up to 200 ms, and a clean frame sent soon after the junk had its own terminator spent on clearing the discard and was eaten whole. A reply's post-transmit drain (`txEnd`) applies the same rule if it finds the flag set, since the drain has just thrown away the cut frame's head.
 
-Two other things are gated on the parser being idle (`parseState == 0`): the deferred broadcast reply, which would otherwise transmit on top of a frame already on the bus and — for an `A` reply — overwrite the shared work buffer under an incoming restore; and the unprovisioned-module advertisement, which used to flush the receive buffer before its carrier-sense check and could eat the middle of a restore addressed to that very board.
+Overflow is only possible while the module is busy. An idle `loop()` reads each byte as it arrives, so a neighbour's 650 ms dump never overflows a listener's 128-byte ring however long it is; a module overflows when it is inside a move, a self-test or an EEPROM burst while traffic keeps arriving. The `Q` counter `rxOverflows` counts these events. This also fixes a display-level symptom on large walls: a full-wall update streams more bytes than the ring holds while the first modules are already moving, and the splice could read as a valid frame for the wrong module (`m1` from one frame plus `3-C` from another). A catch-all 200 ms idle timeout also resets *any* parser state, so a lone `m` from bus noise or a lost terminator can never leave the parser waiting to swallow the next frame's bytes into the current field.
+
+Two other things are gated on the parser being idle (`parseState == 0`): the deferred broadcast reply, which would otherwise transmit on top of a frame already on the bus and — for an `A` reply — overwrite the shared work buffer under an incoming restore; and the unprovisioned-module advertisement, which used to flush the receive buffer before its carrier-sense check and could eat the middle of a restore addressed to that very board. An idle parser is not the same as a quiet bus, though: a neighbour's reply is skipped in state 0. So both also carrier-sense through `busQuiet()`: nothing waiting in the ring, and no byte read for `CSMA_LISTEN_MS`.
+
+The idle timeouts are part of the same loop. A state that applies a command on its terminator (the numeric commands, the broadcast range, the `M` count and the `N` flap set) is fed a synthetic `\n` after 50 ms of silence, so a command sent without a terminator runs exactly the code a terminated one does; every other state is abandoned after 200 ms.
+
+### The v5 bus: `UsartBus`
+
+On the v5 the firmware's `rs485` is a small `UsartBus` class instead of SoftwareSerial, with the same calls and the same behaviour, so nothing else in the firmware differs between the boards: a 128-byte ring (127 usable) filled by the USART's receive interrupt, the same overflow flag (also set when the USART itself loses a byte), and `write()`/`print()`. `txBegin`/`txEnd` keep the same pacing on both boards; on the v5 they leave DE to the USART, and `txEnd` first waits for the last stop bit (`finish()`), because a USART write returns as soon as the byte is queued. Receiving takes a few microseconds of interrupt per byte instead of masking interrupts for the whole byte, which is also what makes `millis()` lose time on the v4 (see *Bus and reply timing*). The baud rate is corrected for the oscillator's factory-measured error (`SIGROW.OSC20ERR3V`).
+
+So far the v5 build has started, and sent on the bus, on v5 modules; its receiving has not been tried yet.
+
+### Checksummed frames
+
+The checksum is a layer in front of the parser, not a feature inside it. Many commands act before their frame has ended:
+- a query replies on its command letter;
+- `-` moves on its character;
+- a number applies at its first non-digit.
+
+A checksum can only be checked once the frame is complete, so threading verification through every state would have meant changing every command's timing. Instead, `loop()` decides at the frame boundary:
+- **Collect.** A `~` arriving with the parser idle starts a checksummed frame, which is collected whole in the shared work buffer, up to its terminator or 50 ms of silence.
+- **Check.** `runCrcFrame()` drops a frame addressed to another module unchecked, exactly as the parser would ignore it. For this module it checks the CRC-16.
+- **Replay.** If the check passes, `runCrcFrame()` feeds the frame's bytes through the unchanged parser (`parseByte()`), as if they had just arrived plain, with `replyCrc` set.
+- **Stop.** The replay stops as soon as the command has run, because its reply may already have reused the work buffer. Replies from the parser may overwrite the buffer only behind the replay position, which the `N` and `mXW` accumulators also respect.
+
+A checksummed frame therefore runs exactly the code its plain twin would. Plain frames never enter the layer.
+
+Replies follow the same idea: every reply is assembled in the work buffer and sent by `sendReply()`, which puts `~HHHH` in front when `replyCrc` is set. A staggered broadcast reply remembers whether its broadcast was checksummed (`pendingCrc`), because it goes out long after the frame that scheduled it.
+
+Two interactions with the receive path:
+- **The overflow skip.** A `~` ends the post-overflow skip, because a spliced frame cannot pass its own check.
+- **The deferred broadcast reply** is held while a checksummed frame is being collected, because that frame is in the work buffer the reply would be assembled in.
 
 ## Addressing and the message format
 
@@ -88,6 +122,12 @@ now + REPLY_LEADIN_MS + (moduleId − rangeLo) × slotWidth
 and waits for its slot before transmitting. The slot width depends on the reply size — short version replies (`v`) use a 100 ms slot, large combined dumps (`A`) use a 700 ms slot. The optional ID range on a broadcast query (`m*v0-49`) lets a controller poll a large bus in batches and re-issue only the ranges that came back incomplete, which is far more robust at scale than one all-or-nothing sweep. A runtime variable records which reply type a staggered broadcast should produce, so the shared scheduling state can serve either kind.
 
 The deferred reply is **non-blocking**: the module records *when* it should answer and continues running its loop, rather than busy-waiting, so it stays responsive.
+
+Three timing details matter on wide walls:
+
+- **The slot clock starts when the module parses the broadcast's terminator** (or 50 ms of silence, if the query has none). Idle modules parse it within a fraction of a millisecond of each other; a busy module parses it from its backlog, late, and its slot is late by the same amount.
+- **Carrier sense (v33).** When the slot comes round, the reply still waits until the bus has been quiet for `CSMA_LISTEN_MS` (20 ms). A slot on time always sees that much quiet (30 ms lead-in for the first, ≥ 50 ms after the previous reply for the rest), so on a healthy bus nothing moves. A late module therefore defers instead of transmitting over the next slot, and the module behind it defers in turn. `Q` reports `bcastSent` and `bcastLate`.
+- **`millis()` runs slow while the bus is busy (v4 board).** SoftwareSerial masks interrupts for about 0.97 ms per received byte (the whole byte is sampled inside the pin-change interrupt) and about 0.94 ms per transmitted byte, longer than megaTinyCore's 0.82 ms TCD0 millis tick. When two ticks fall inside one masked window only one is counted, so the clock loses about 15% of the time bytes are on the bus. Every module hears the same traffic and a later slot hears more of it, so the lag grows with slot position: it spreads replies apart and cannot make two of them meet, but a controller has to wait somewhat longer than the nominal window for the last slots (about 1.5 s extra for the 16th reply of an `A` batch). The v5's USART receive interrupt takes microseconds, so there its clock should keep time (not yet measured).
 
 ## Persistence and the EEPROM layout
 
@@ -128,7 +168,13 @@ SRAM is the scarcest resource. Two deliberate choices keep it under control:
 
 The per-call stack cost of the diagnostics is bounded too — for example, the mechanical test's per-rotation array is sized to the maximum requestable rotation count and lives only on the stack during the test.
 
-**Flash is the binding constraint.** The build occupies roughly 99% of the ATtiny1616's 16 KB program flash, so new features have to be paid for by removing duplication elsewhere. The configurable flap set (v31), for instance, only fit after the repeated RS-485 transmit framing was factored into `txBegin`/`txEnd`/`sendLine`/`txReplyHeader`/`txNumField`, the dump assembly into `appendMsgId`/`appendFlapMap`, the flap-map erase into `clearFlapMap`, the `g` move into `gotoRawStep`, and the seven parameterless serial-number provisioning commands (`H`/`D`/`A`/`T`/`Q`/`M`/`F`) into a single shared parse state dispatched by a stored command letter. That is why the configured character set is read one byte at a time from EEPROM via `flapCharAt()` rather than mirrored into a RAM buffer — it saves both SRAM and the flash of the copy loops. `platformio.ini` also selects the minimal integer-only `printf` (`-lprintf_min`) with `-Os -flto`; switching to the full or float `printf` overflows flash. When adding code, build and watch the `Flash:` figure, and look for a repeated sequence to factor before assuming a feature won't fit.
+**Flash is the binding constraint.** Since v35 the firmware shares the ATtiny1616's 16 KB with a 1 KB [bootloader](bootloader/README.md): it is linked at `0x0400` and, since v36, has 15,356 bytes (the last four hold the board tag, a reserved byte and the image CRC). The v4 build uses 14,749 of them (96.0%; v32 used 99% of the whole 16 KB), so new features have to be paid for by removing duplication elsewhere. The v5 build, with `UsartBus` instead of SoftwareSerial, uses 13,675, but a feature has to fit both. v35 made the room for the bootloader by replacing `strtol`/`atol` with `parseDecimal()`.
+
+v33 recovered about 1.5 KB that way, and spent about 0.4 KB of it on checksums:
+- the idle timeouts stopped being hand-copied twins of each command's terminator handling (they feed the parser a synthetic `\n`);
+- the replies stopped using `snprintf` and Arduino's number printing, which took the ~1 KB printf library and its build flags out of the image.
+
+The configurable flap set (v31), for instance, only fit after the repeated RS-485 transmit framing was factored into `txBegin`/`txEnd`/`sendLine`/`txReplyHeader`/`txNumField` (since v33 just `txBegin`/`txEnd`/`sendReply`), the dump assembly into `appendMsgId`/`appendFlapMap`, the flap-map erase into `clearFlapMap`, the `g` move into `gotoRawStep`, and the seven parameterless serial-number provisioning commands (`H`/`D`/`A`/`T`/`Q`/`M`/`F`) into a single shared parse state dispatched by a stored command letter. That is why the configured character set is read one byte at a time from EEPROM via `flapCharAt()` rather than mirrored into a RAM buffer — it saves both SRAM and the flash of the copy loops. `platformio.ini` builds with `-Os -flto`. Don't bring a `printf`-family call back: one call links the whole library again. When adding code, build and watch the `Flash:` figure, and look for a repeated sequence to factor before assuming a feature won't fit.
 
 ## Motion model
 
@@ -145,7 +191,7 @@ Every wait-for-sensor loop in the motion and calibration code is bounded by a sa
 
 Three commands let a controller assess module health over the bus without physical inspection. They are designed to be run in order, because each depends on the previous being sound:
 
-1. **`Q` — snapshot (no movement).** Reports reset cause, boot count, supply voltage, EEPROM health, and current index. Fast and safe to poll. Check this first: an unexpected reset cause or a climbing boot count points to a module resetting in the field.
+1. **`Q` — snapshot (no movement).** Reports reset cause, boot count, supply voltage, EEPROM health, current index and, since v33, four bus counters (receive overflows, broadcast replies sent, how many of those had to wait for the bus, and checksummed frames that failed their check). Fast and safe to poll. Check this first: an unexpected reset cause or a climbing boot count points to a module resetting in the field.
 2. **`T` — Hall sensor self-test.** Steps one revolution and classifies the sensor: healthy, stuck active, dead/disconnected, multiple regions (noise), or inverted polarity. The mechanical test observes motion *through* this sensor, so the sensor must be proven healthy before the mechanical result can be trusted.
 3. **`M` — mechanical self-test.** Drives the motor across several revolutions and reports per-rotation step counts plus summary statistics (min, max, spread) and gate observations. The spread and the raw per-rotation trend distinguish a one-off glitch from a progressive fault; the gate fields make a "no motion" result diagnosable (sensor never fired vs. reel under-rotated vs. parked on the magnet). The number of rotations is requestable (`m<id>M<n>`) for better statistics on rare intermittent faults.
 

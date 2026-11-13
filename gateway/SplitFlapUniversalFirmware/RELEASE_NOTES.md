@@ -1,8 +1,154 @@
 # Release Notes
 
-Version history for the Split-Flap Universal Firmware. The firmware version is reported by the `v` and `A` commands (e.g. `m38v` → `m38v:32:38:<serial>`).
+Version history for the Split-Flap Universal Firmware. The firmware version is reported by the `v` and `A` commands (e.g. `m38v` → `m38v:36:38:<serial>:4`).
 
 All versions from v6 onward share the same EEPROM field layout, and every change to a reply has been **append-only** — new fields are added at the end so older controllers keep working. Upgrading preserves a module's ID and calibration **as long as the `EESAVE` fuse is set** (see [SETUP.md](SETUP.md) § "Write the fuses").
+
+---
+
+## v36 — Two driver boards
+
+v36 supports a second module board, the **v5**, whose RS-485 transceiver is on the ATtiny1616's hardware USART instead of bit-banged pins. Each board needs its own firmware, so **from v36 every release has one set of files per board**. On a v4 module nothing else changes: same EEPROM, same timing, and every reply is the same except `v`, which gains one field at the end.
+
+**Which file**
+
+| Board | Flash over UPDI | Update over the bus |
+|---|---|---|
+| v4, and earlier boards | `firmware-v4.hex` | `firmware-update-v4.bin` |
+| v5 | `firmware-v5.hex` | `firmware-update-v5.bin` |
+
+- **The [web flasher](https://avandeputte.github.io/SplitFlapUniversalFirmware/) picks the image by itself.** It carries both, reads which board each module is, and writes that board's image. A file you choose yourself is for one board, and a module on the other board is refused before anything is written to it.
+- **The gateway** (4.3.0 and later) reads the board from the image you upload and updates only the modules on that board, so a wall with both boards takes one run per image.
+- **A wrong image sent over the bus does no harm.** Before anything else, the firmware reads the board from a strap on the module's PC0 pin. On the wrong board it goes straight back into its bootloader without touching a bus pin, and waits there for the right image.
+- **Over UPDI, a wrong image also brings the other board's bootloader**, and the module can then be fixed only over UPDI. The web flasher refuses to write one. With avrdude, see [FLASHING.md](FLASHING.md).
+- **v4 modules need no UPDI flash.** Their v35 bootloader is unchanged, so `firmware-update-v4.bin` updates them over the bus.
+
+**Replies**
+- **`v` appends `:<board>`**, `4` or `5`: `m38v:36:38:<serial>:4`. Older controllers ignore it, and a module without the field is a v4.
+- **The v5 bootloader is version 2.** It reports 2 in `Q`'s last field, and its status frame in update mode has one more byte, the board ([BUS-UPDATE.md](BUS-UPDATE.md)). The v4 bootloader is still version 1, byte for byte the one in v35.
+
+**The v5 board**
+- **The bus is on USART0's alternate pins:** PA1 (TX), PA2 (RX) and PA4 (driver enable), which the USART switches by itself in its RS-485 mode. Received bytes go through an interrupt into a 128-byte buffer, as on v4, and the reply timing is the same.
+- **The baud rate is corrected** for each chip's factory-measured oscillator error.
+- **The v5 bootloader** uses the USART too, and will not run on any board but a v5.
+
+**Build**
+- **`pio run` builds the v4 board, `pio run -e v5` the v5**, and `pio run -e v4 -e v5` both. Each upload writes only its own board's image.
+- **Each image names its board** at `0x3FFC`, inside the range the image CRC covers. The firmware may now use 15,356 bytes, down from 15,358. It uses 14,749 on v4 and 13,675 on v5, where SoftwareSerial is gone.
+- **The bootloader's host tests** run on both builds: 5,588 checks on v4 and 5,589 on v5.
+
+**Tried on hardware**
+- **v5:** four modules flashed over UPDI. On each, the bootloader starts the firmware, which reads the strap as v5 and sets up the USART on the right pins, and the module announces itself on the bus every 10–15 s. Receiving commands, and an update over the bus, are not yet tried on a v5.
+- **v4:** a module on older firmware without the bootloader was flashed with the web flasher's routine. It wrote the four fuses, kept the settings, and v36 starts: it stays in its firmware, with the motor and its own bus pins set up, and announces itself on the bus. Given only the v5 image, the routine refused and left the module unchanged. An update over the bus from v35 is not yet tried with v36.
+- **Web flasher:** its routine, run from Node against a v5 module, read the board from PC0 and wrote and verified the v5 image in 24 s, with the settings kept. Given only the v4 image, it refused before the backup, and the chip's flash, fuses and EEPROM were unchanged. The page itself is not yet tried in a browser.
+- **A v5 module sent the v4 firmware**, as an update over the bus would leave it: it starts the firmware, goes back to its bootloader, and waits there for the right image, restarting every 8 s. PA5 and PA6 were never outputs.
+
+---
+
+## v35 — Firmware updates over the bus
+
+v35 adds a bootloader, so from now on new firmware can reach a whole wall over the RS-485 bus instead of module by module over UPDI. Getting there takes **one last flash over UPDI per module**, which also sets a new fuse. The EEPROM layout is unchanged, and so is every reply except `Q`, which gains one field at the end and now reports the real reset cause.
+
+**Action required, once per module**
+- **Flash v35 over UPDI.** Its image now starts with the bootloader, which needs the fuse `BOOTEND = 0x04` to reserve its 1 KB:
+  - The [web flasher](https://avandeputte.github.io/SplitFlapUniversalFirmware/) sets the fuse from the image by itself.
+  - With PlatformIO, run `pio run -t fuses` once, then upload.
+  - With avrdude, [FLASHING.md](FLASHING.md) has the commands (`fuse8` is now `0x04`).
+- **The fuse must match the image.** A v35 image with `BOOTEND = 0x00`, or an older one with `0x04`, does not run. The web flasher picks the right value for whichever image it writes, so going back to an older release is safe with it too.
+
+**Updates over the bus**
+- **The bootloader** ([bootloader/](bootloader/)) takes the first 1 KB of flash. At every start it checks the firmware against its CRC (about 150 ms) and runs it.
+- **A new command, `U`**, restarts a module into update mode, and `m*U` does the whole wall. It is accepted only in a checksummed frame, so line noise can never trigger it.
+- **The procedure.** The gateway broadcasts the image page by page, about 40 s for any number of modules. It then asks each module what it is missing, resends just that, and tells the modules to go.
+- **[BUS-UPDATE.md](BUS-UPDATE.md)** has the protocol and the procedure. [`tools/busflash.py`](tools/busflash.py) is a reference sender, for a computer with a USB–RS485 adapter.
+- **Every release now includes `firmware-update.bin`**, the part of the image sent over the bus.
+- **Safety:**
+  - A module never runs a partial image. An update that stops part way, power cut included, leaves it waiting in update mode for the image.
+  - Every page is read back after it is written.
+  - The final check needs every page plus a CRC match.
+  - The bootloader never writes EEPROM, so IDs and calibration are safe.
+  - It never touches its own section.
+  - It answers only when asked by its own ID.
+- **Not yet tried on a real bus.** On modules, the bootloader's start-up check works, and so does its fall-back to update mode when the image is broken. The update itself has so far run only on a host simulation of the chip, so try the first one on a single module. A module that does not finish an update is either back on its old firmware or waiting in update mode, and a UPDI flash always recovers it.
+
+**Diagnostics**
+- **`Q` appends `:<blVersion>`**, the bootloader's version, or 0 if the module has none. Older controllers ignore it.
+- **`Q` reports the real reset cause.** It has read `0` since it was added: megaTinyCore's startup clears the reset flags before the firmware's `setup()` runs. The firmware now reads the copy the core leaves for it.
+
+**Web flasher**
+- **It now gets into a module whose firmware keeps restarting the chip.** It sends the programming key while it holds the chip in reset. Before, a firmware that restarted the chip every few milliseconds could use the key up before the flasher confirmed it, and the flash failed.
+
+**Build**
+- **Layout.** The firmware is linked at `0x0400`, behind the bootloader, and may use up to 15,358 bytes.
+  - `firmware.hex` is the whole image: bootloader, firmware, and the image CRC in the last two bytes.
+  - A post-build step (`bootloader/merge.py`) puts it together, so `pio run -t upload` and avrdude write all of it.
+- **`strtol` and `atol` are gone.** A 14-line parser gives the same results on all of 2 million test strings, edge cases included, and saves about 650 bytes. Flash use is 14,671 of 15,358 bytes (95.5%).
+- **Checked against v33** on a host simulation of the firmware: 8,000 randomised traffic runs, plain and checksummed, give identical replies with identical timing, apart from `Q`'s new field.
+- **The bootloader's own tests** cover every boot decision, faulty and hostile bus traffic, and power lost at every flash write of an update.
+
+---
+
+## v34 — The watchdog really is 2 seconds
+
+A one-line fix, and very likely the end of modules that never answer a dump. No fuse change and no EEPROM-layout change, and every reply is unchanged: just upload.
+
+**The bug**
+- **The firmware asked for a 2 s watchdog with avr-libc's `WDTO_2S`.** On this chip, `wdt_enable()` puts that constant straight into the watchdog's period field, where 7 means 512 cycles. The watchdog has really been running at **0.512 s**.
+- **One thing took longer than that without resetting it: a reply.** A reply is sent in one go after a single reset, at about 1 ms a byte. **Any reply longer than about 490 bytes reset the module part way through.**
+- **In practice, the dumps of a well-calibrated module.** The `A` and `d` dumps of a module with many calibrated flap positions run past that: a fully calibrated module's `A` dump is about 630 bytes. Such a module:
+  - answers every short command, but never a dump;
+  - counts one more boot (`bootCount` in `Q`) for every attempt;
+  - "recovers" when its calibration is erased, because that makes the dump short again.
+
+  That is the gateway's soak-test report: two modules on a 64-module wall that never answered a dump.
+
+**The fix**
+- **The chip's own constant.** The watchdog now uses `WDT_PERIOD_2KCLK_gc`: 2.048 s, as the code and the docs always said. The longest possible reply, about 0.73 s, is well inside it.
+- **Checked on a module:** the watchdog register now reads `0x09` (2K cycles), where v33 left `0x07` (512 cycles).
+- **A hang is still caught**, in 2 s instead of 0.5 s.
+
+---
+
+## v33 — Bus robustness from gateway soak tests, optional checksums, and no more printf
+
+No fuse change and no EEPROM-layout change: just upload. Every reply to a plain message is byte-for-byte unchanged except `Q`, which gains four fields at the end, and messages may now carry an optional checksum. These changes answer the requests the gateway project filed after soak-testing a 64-module wall.
+
+**Checksums (optional)**
+- **Any message can carry a checksum:** `~HHHH<message>\n`. `HHHH` is the CRC-16/CCITT-FALSE of the message from its `m` to its terminator, as 4 hex digits; in Python, `binascii.crc_hqx(message, 0xFFFF)`.
+- **A module checks it before acting on the message.** A frame that fails is dropped and counted in `Q` (`crcErrors`).
+- **A frame that passes runs exactly as the plain message would**, and every reply it causes carries a checksum in the same form, staggered broadcast replies included.
+- **Messages without a checksum are handled and answered exactly as before.**
+- **Older firmware skips the checksum** and runs the message unchecked, so checksums work on mixed walls, broadcasts included.
+- See README → *Checksums* for the details, including why a checksummed message should always be terminated.
+- **All replies are now assembled before transmitting.** The bytes are unchanged; this is what lets the checksum go in front.
+
+**Receive path**
+- **A clean frame after an overflow is no longer eaten.** When a busy module's receive ring overflows, the firmware still abandons the frame that was cut and skips the spliced tail. The skip now ends after 5 ms of bus silence instead of 200 ms. In v32 a command sent within 200 ms of the module finishing its backlog was discarded, and its own terminator was what cleared the discard; it is now answered whenever it starts 5 ms or more after the junk. (An idle module never overflows: it reads bytes as fast as the bus delivers them, however long a neighbour's reply.)
+- **Commands without a terminator behave exactly like terminated ones.** The 50 ms idle timeout now feeds the parser a `\n` instead of running a separate copy of each command's handling. As a side effect, commands that arrived while such a command was running are no longer lost to the reply of an earlier broadcast.
+- **`+` with no index is ignored**, like every other numeric command (it used to move to flap 0).
+
+**Broadcast replies**
+- **Carrier sense before a staggered reply.** When its slot comes round, a module answering `m*v` or `m*A` waits until the bus has been quiet for 20 ms, so a slot that would land on another frame defers instead of destroying both. On a healthy bus every slot already sees that much quiet, so timing is unchanged. The unprovisioned-module advertisement uses the same check and no longer busy-waits 20 ms.
+- **Timing documented.** The slot clock starts at the broadcast's terminator. While the bus is busy each module's `millis()` runs about 15% slow, so later slots land later than nominal: they are spread apart, never pushed together, and a controller should wait somewhat longer for the last ones. See README → `v`.
+
+**Diagnostics**
+- **`Q` appends `:<rxOverflows>:<bcastSent>:<bcastLate>:<crcErrors>`**, all counted since boot:
+  - receive-ring overflows;
+  - staggered broadcast replies transmitted;
+  - how many of those had to wait for the bus;
+  - checksummed frames for this module that failed their check.
+
+  Older controllers ignore the extra fields.
+
+**Dumps and calibration data**
+- **Out-of-range flap positions are refused** by `w` and by the `mXW` restore (which leaves such entries uncalibrated). A negative position in a restore payload used to be stored as e.g. `65368`. The module never used such a value for a move, so nothing on the display changes.
+- **A corrupt flap-character cell holding a line terminator is sent as `?`** in the `A` dump instead of ending the frame early.
+- **A dump can never be truncated**, and the build now proves it: the longest possible `A` line is ~700 bytes against a 720-byte buffer, checked at compile time.
+- **Every transmission starts with a watchdog reset.** The longest reply, a full `A` dump, takes ~0.75 s, well inside the 2 s watchdog. (It wasn't: the watchdog really ran at 0.5 s until v34 fixed it.)
+
+**Build**
+- **printf is gone.** The dumps were the only formatted output; two small helpers now produce them byte for byte as `snprintf` did, so the ~1 KB printf library and the `-Wl,-u,vfprintf -lprintf_min` flags are out of `platformio.ini`. The build no longer depends on which printf variant a toolchain would pick.
+- Flash use is down from 99.1% to 92.7% (16,244 → 15,181 bytes), checksums included; RAM +11 bytes.
 
 ---
 
