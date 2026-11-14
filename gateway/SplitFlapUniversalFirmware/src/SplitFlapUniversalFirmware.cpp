@@ -1706,11 +1706,14 @@ void applyStep(const uint8_t *step) {
 // (This was historically named stepBackward.)  Each step pulses the watchdog,
 // re-syncs the absolute position on a Hall edge, and wraps at one revolution.
 void advance(int steps) {
-  static bool lastHallState = false;
+  // LOCAL FIX: -1 = not read yet.  Was `false`, so a reel that started parked on
+  // the magnet took its first step as the leading edge, wherever inside the
+  // magnet it was, and shifted currentStepPos by up to the magnet's width.
+  static int8_t lastHallState = -1;
   for (int k = 0; k < steps; k++) {
     wdt_reset();   // keep the watchdog happy during long moves
     bool hallNow = hallActive();
-    if (hallNow && !lastHallState)
+    if (hallNow && lastHallState == 0)
       currentStepPos = totalStepsPerRev - stepsFromHallToZero;
     lastHallState = hallNow;
 
@@ -1805,8 +1808,25 @@ void nudge(int n) {
 // window (stuck/failed sensor, missing magnet), do NOT claim a known position:
 // leave currentFlapIndex = -1 so the next move re-attempts homing instead of
 // silently displaying the wrong flap.  Returns true on success.
+//
+// LOCAL FIX: the edge is where the sensor turns active.  If the reel starts
+// parked on the magnet, the sensor is already active but the reel can be
+// anywhere inside the magnet (~150-180 steps), so step off it first; homing
+// used to stop at once and land up to a magnet's width past flap 0.  From off
+// the magnet the first loop takes no steps.  A sensor that never goes inactive
+// (stuck active) now fails homing instead of claiming a position.
 bool homeModule() {
   long safety = 0;
+  while (hallActive()) {
+    if (++safety > 2000) {       // the same cap measureOneRev puts on the magnet's width
+      releaseMotor();
+      currentFlapIndex = -1;     // unknown — force a re-home on next move
+      return false;
+    }
+    advance(1);
+  }
+
+  safety = 0;
   bool foundHome = false;
   while (safety < (totalStepsPerRev + 500)) {
     if (hallActive()) { foundHome = true; break; }

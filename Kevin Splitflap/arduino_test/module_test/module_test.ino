@@ -10,7 +10,8 @@
       the table backwards; the drum only ever turns one way)
     - same speed: a constant 1 ms per half-step, no ramp
     - same default 64-flap reel, 4096 steps/rev and home offset 2832
-    - same homing: step until the sensor reads "magnet", then step the home
+    - same homing (with our fix to the firmware): if parked on the magnet,
+      step off it; step until the sensor reads "magnet", then step the home
       offset to land on flap 0
     - same flap positions: flap i is at i * stepsPerRev / NUM_FLAPS steps past
       flap 0 (rounded down)
@@ -209,11 +210,24 @@ void moveSteps(long n) {
   endMove();
 }
 
-// firmware homeModule(). It stops on the magnet LEVEL, not a fresh edge, so a
-// drum parked on the magnet homes at once.
+// firmware homeModule(), with our fix: the reference is the magnet's leading
+// edge. A drum parked on the magnet could be anywhere inside it, so step off it
+// first, then step until the sensor reads the magnet again.
 bool home() {
   Serial.println(F("Homing..."));
   beginMove();
+  long off = 0;
+  while (sensorActive()) {
+    if (++off > 2000) {
+      endMove();
+      homed = false;
+      currentFlap = -1;
+      Serial.println(F("  FAILED: the sensor still reads the magnet after 2000 steps."));
+      Serial.println(F("  Check: polarity (run p), and that the drum actually turned."));
+      return false;
+    }
+    stepForward();
+  }
   long limit = stepsPerRev + 500;
   long n = 0;
   while (!sensorActive() && n < limit) {
@@ -235,6 +249,11 @@ bool home() {
   pos = 0;
   homed = true;
   currentFlap = 0;
+  if (off) {
+    Serial.print(F("  Started on the magnet, stepped "));
+    Serial.print(off);
+    Serial.println(F(" steps off it."));
+  }
   Serial.print(F("  Magnet found after "));
   Serial.print(n);
   Serial.println(F(" steps, now on flap 0."));
