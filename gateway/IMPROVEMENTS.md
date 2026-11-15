@@ -365,6 +365,88 @@ If the speed you want is under the start-stop limit, skip the ramp and just set 
 **Effort:** a day or two plus bench time. Under a few hundred lines, all in the module
 firmware. Most of the risk is in the shared-variable audit, not the stepping code.
 
+### 6. Bug: `nudge()` (`s<n>`) moves the home but leaves the position counter in the old frame
+
+Flagged in the learning guide (Part 9, note 5), and confirmed by reading the code.
+
+**Where:** `nudge()` (`src/SplitFlapUniversalFirmware.cpp:1785`), called from the `s<n>` command
+(parser state 7, `:2663`). Related: the `o<n>` handler (state 5, `:2655`). Line numbers are for
+the v36 working tree.
+
+**Today:**
+
+```cpp
+void nudge(int n) {
+  long fwd = n % totalStepsPerRev;
+  if (fwd < 0) fwd += totalStepsPerRev;
+  for (long k = 0; k < fwd; k++) advance(1);   // each step does currentStepPos++
+  releaseMotor();
+  stepsFromHallToZero = (stepsFromHallToZero + n) mod totalStepsPerRev;   // new home
+  saveHomeOffset();
+  // missing: currentStepPos is still counted from the OLD home
+}
+```
+
+`currentStepPos` means "steps from flap 0", and flap 0 is defined by the home offset. The nudge
+moves the reel n steps **and** moves flap 0 n steps, so the reel is at the same position
+relative to the new home as it was before. But `advance()` added n to `currentStepPos`, and
+nothing takes it off again.
+
+**What goes wrong** (the usual calibration flow: home, nudge, check):
+
+1. `m5h`: the reel is at flap 0, `currentStepPos = 0`.
+2. `m5s5`: the reel moves 5 steps and the offset grows by 5. The reel *is* at the new flap 0,
+   but `currentStepPos = 5`.
+3. `m5-C`: `moveToIndex()` computes `target − 5` steps, so the reel lands **exactly where it
+   would have without the nudge**.
+
+The nudge looks as though it did nothing, so the natural reaction is to nudge again, which
+overcorrects. The error clears itself only when the reel next passes the magnet: `advance()`'s
+Hall resync then sets `currentStepPos = totalStepsPerRev − stepsFromHallToZero` using the new
+offset. A move from flap 0 to a later flap usually doesn't pass the magnet (it sits just before
+flap 0), so the error typically survives the first check move or two.
+
+**Fix:** after the move, take the nudge back off the counter. The reel hasn't moved relative to
+the new home:
+
+```cpp
+  // The reel moved n steps and so did flap 0: relative to the new home it hasn't moved.
+  long p = (currentStepPos - n) % totalStepsPerRev;
+  if (p < 0) p += totalStepsPerRev;
+  currentStepPos = p;
+  saveState();          // keep the saved position right when auto-home is off
+```
+
+- This works from any starting position, not just after homing, and for negative `n`
+  (`fwd = T + n` adds `T + n`, which is `+n` mod T).
+- It also works if the nudge itself passes the magnet. During the move, the Hall resync still
+  uses the **old** offset, because the offset only changes afterwards. So the counter stays in
+  the old frame throughout, and subtracting `n` converts it.
+- `currentFlapIndex` stays as it is: the reel is still on the same flap, now better centred.
+  That's the point of a nudge.
+- `saveState()` was also missing: with auto-home off, the saved position (`0x07`) would be
+  stale until the next move.
+
+**Related: `o<n>` (set offset directly)** has the same mismatch without any motion. It changes
+`stepsFromHallToZero` but not `currentStepPos`, so the counter is off by `(new − old)` until the
+next magnet pass or `h`. Either apply the same correction there
+(`currentStepPos -= new − old`, wrapped) or document that `o` must be followed by `h`. The gateway
+dashboard and `restore.cpp` should be checked for whether they already home after setting `o`.
+
+**Test (bench, one module):**
+1. `m5h`, then `m5s20`, then `m5-` followed by a character a few flaps after the blank. Before
+   the fix it lands 20 steps short of where the new offset says. After the fix it lands on the
+   new position.
+2. The same with `m5s-20`.
+3. Nudge from a flap other than 0 (`m5-C`, then `m5s10`, then `m5-E`).
+4. Nudge by more than the distance to the magnet, so the nudge itself passes the magnet.
+5. `m5o<n>` followed by a move, before and after whatever `o` fix you choose.
+6. Check `m5A` (`curIndex`) and, with auto-home off, reboot and confirm the restored position
+   is right.
+
+**Effort:** a few lines. Worth folding into the next firmware change (for example #4, which
+rewrites the position handling anyway and must keep this right).
+
 ---
 
 ## Whole bus (module firmware, bootloader, gateway, tools)
