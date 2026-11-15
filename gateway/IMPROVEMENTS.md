@@ -774,6 +774,60 @@ Monitor "Send Frame" box and `/api/rs485/send` stay as they are.
 - **Upstream merges:** the change lives in the batch handler, so re-apply it if upstream
   rewrites that function.
 
+### 7. Never broadcast EEPROM writes, and checksum every one
+
+From the learning guide's review (Part 9, note 1): `i`, `F`, `R` and `e` all used to accept
+broadcasts. `m*i7` gave every module ID 7, and `m*e` erased every module's calibration map.
+Each was a one-line way to undo hours of work on the whole wall, and none of them replies, so
+nothing showed it had happened. `o`, `t`, `w` and `s` are just as bad: each value belongs to one
+module.
+
+**Done in the module firmware** (local change, `broadcastRefused()` in
+`SplitFlapUniversalFirmware/src/SplitFlapUniversalFirmware.cpp`, documented under COMMANDS):
+- `m*i`, `m*e`, `m*F`, `m*o`, `m*t`, `m*w` and `m*s` are ignored. Addressed to one module
+  (`m<id>…`) they work as before.
+- `m*R` (de-provision every module) runs **only in a checksummed frame**, the same rule `U`
+  already has. Noise and hand-typed frames can't trigger it.
+- Not yet tested on hardware: it needs a bench check (below).
+
+**Still to do on the gateway and tools (after Phase 1):**
+
+1. **"De-provision all" stops working until the gateway checksums it.** The dashboard's
+   "De-provision all" button (`ui/index.html`, `POST /api/flap/deprovision {"id":-1}`) calls
+   `sfDeprovision(-1)` (`src/modules.cpp:1409`), which sends a plain `m*R` with
+   `rs485SendStr()`. The firmware now ignores it. Fix: send the broadcast with
+   `rs485SendChecked("m*R\n")`. `SplitFlapUniversalFirmware/provision.py`'s reset-all
+   (`reset_all_modules()`, `:98`) has the same problem. It has no CRC code yet, so add
+   `binascii.crc_hqx(frame, 0xFFFF)` and send `~%04X` + frame.
+2. **Refuse broadcasts of these at the gateway too**, so a bad API call fails loudly instead of
+   being quietly dropped by the modules. `/api/flap/erase` and `/api/flap/factoryreset`
+   (`src/web.cpp:1756`, `:1771`) accept `id:-1` today and send `m*e` / `m*F`. Reject `id < 0`
+   with a 400. Do the same for the offset, total-steps, nudge and `writepos` routes, and drop
+   the `addr < 0` branches of `sfHomeOffset`, `sfSetTotalSteps`, `sfNudge`, `sfWritePos`,
+   `sfErase` and `sfFactoryReset` (`modules.cpp:549–598`). Keep the broadcast forms that make
+   sense: home all (`m*h`), display (`m*-`), auto-home (`m*a`), flap set (`m*N`), and
+   checksummed `m*R`.
+3. **Checksum every message that writes EEPROM.** Today only `sfWritePos` (addressed) and the
+   restore path use `sfSendToModule()`. These still go out plain with `rs485SendStr()`:
+   `sfHomeOffset` (`o`), `sfSetTotalSteps` (`t`), `sfNudge` (`s`), `sfAutoHome` (`a`),
+   `sfSetId` (`i`, `modules.cpp:1399`), `sfErase` (`e`), `sfFactoryReset` (`F`),
+   `sfDeprovision` (`R`) and `sfSetFlapConfig` (`N`). Switch each one to `sfSendToModule()`
+   (addressed) or `rs485SendChecked()` (the broadcasts kept in item 2). A flipped bit in one of
+   these doesn't get overwritten a second later like a display frame: it stays wrong in EEPROM.
+4. **Mock:** if the gateway starts rejecting `id:-1`, make `mock_gateway.py` match and re-run
+   CONTRACT.md §10 (CLAUDE.md: the mock stays faithful). The Pi side never sends these, so the
+   contract itself doesn't change.
+
+**Bench test for the firmware change (one or two modules, stock gateway):**
+- `m*i7`, `m*e`, `m*F`, `m*o0`, `m*t100`, `m*w0:5`, `m*s50`: none has any effect. Read back
+  with `m<id>A` and check the ID, offset, steps and map are unchanged, and that `m*s50` didn't
+  move the reel.
+- The same commands addressed (`m5o…`, `m5w…`, …) still work.
+- Plain `m*R` is ignored. A checksummed `~863Cm*R` de-provisions every module,
+  and they start advertising.
+- `mXF<sn>` (factory reset by serial number) still works: it isn't a broadcast.
+- The dashboard's "De-provision all" does nothing until item 1 is done. Expected.
+
 ---
 
 ## Companion / Pi side
