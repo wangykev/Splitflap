@@ -66,6 +66,14 @@
 // COMMANDS  (all v6 commands preserved exactly)
 // ==============================================================================
 //
+// LOCAL CHANGE: commands that overwrite a module's own identity or calibration
+// are refused as broadcasts (m*...): i, e, F, o, t, w and s are ignored, and R
+// runs only in a checksummed frame (like U).  Each of these values belongs to
+// one module, so a broadcast is never right, and one stray m*i7 or m*e would
+// undo the whole wall's provisioning or calibration with no reply to show it.
+// Addressed to one module (m<id>...) they work exactly as before.  See
+// broadcastRefused().
+//
 //  -<char>   Display the character <char> (single byte, from the configured
 //            flap set — see 'N').  A character that is not in the set homes the
 //            reel instead.
@@ -124,12 +132,12 @@
 //            avgMagnetWidth = average magnet width across the revs; r1..rN = the
 //            raw steps-per-rev for each rotation (the trend distinguishes an
 //            intermittent glitch from a progressive drift).
-//  o<n>      Set home offset (steps past Hall trigger to flap 0)
-//  t<n>      Set total steps per revolution
-//  s<n>      Nudge forward n steps and add to home offset
+//  o<n>      Set home offset (steps past Hall trigger to flap 0)  [not broadcast]
+//  t<n>      Set total steps per revolution                      [not broadcast]
+//  s<n>      Nudge forward n steps and add to home offset        [not broadcast]
 //  g<n>      Go to raw step position n
-//  w<i>:<p>  Write calibrated position p for flap index i
-//  i<n>      Set module ID to n
+//  w<i>:<p>  Write calibrated position p for flap index i         [not broadcast]
+//  i<n>      Set module ID to n                                  [not broadcast]
 //  a<n>      Set auto-home flag (1=home on boot, 0=restore saved position)
 //  N<count>:<chars>
 //            Configure the flap set.  BOTH parts are optional and INDEPENDENT:
@@ -164,8 +172,9 @@
 //              m*A\n        → all provisioned modules answer (wide slots)
 //              m*A0-49\n    → only IDs 0–49 answer
 //              m*A50-99\n   → only IDs 50–99 answer
-//  e         Erase calibrated flap position map
+//  e         Erase calibrated flap position map                  [not broadcast]
 //  R         Reset provisioning (erase ID, resume advertising)  [v9+]
+//            m*R (every module) runs only in a checksummed frame.
 //  v         Report firmware version, serial number and board
 //              → replies m<id>v:<version>:<moduleId>:<serialNumber>:<board>\n
 //            <board> (appended in v36) is the driver board the image is built
@@ -189,7 +198,8 @@
 //            A v5 board's hardware USART does not mask interrupts, so its slots
 //            land on time; the slot spacing is the same on both boards.
 //  F         Factory-reset EEPROM defaults (preserves module ID and magic byte)
-//  U         Restart into the bootloader to take a firmware update over the
+//            [not broadcast]
+//  U        Restart into the bootloader to take a firmware update over the
 //            bus (v35; BUS-UPDATE.md).  Only in a checksummed frame (see
 //            CHECKSUMS): a plain 'U' is ignored, so line noise can never take a
 //            module off line.  m*U takes every module.  No reply: from then on
@@ -2456,6 +2466,26 @@ void setup() {
 // parseState 24 : direct 'N' — flap config: <count> ':' <chars>
 // parseState 25 : 'N' prov — serial number ':' <count> ':' <chars> (config by SN)
 
+// LOCAL CHANGE: true for a command letter that must not run as a broadcast
+// (m*<c>).  These overwrite one module's own ID or calibration, so a broadcast
+// would give every module the same value: m*i7 makes the whole wall ID 7, m*e
+// or m*F wipes every calibration, m*o/t/w/s puts one module's numbers on all of
+// them.  None of them replies, so nothing would show it had happened.  R is the
+// exception with a real use ("de-provision all", to start provisioning over),
+// so m*R is allowed in a checksummed frame only, the same rule as U.  The
+// command is dropped at its letter; the digits after it are skipped in state 0.
+static bool broadcastRefused(char c) {
+  switch (c) {
+    case 'i': case 'e': case 'F':
+    case 'o': case 't': case 'w': case 's':
+      return true;
+    case 'R':
+      return !replyCrc;                    // set only while a checksummed frame runs
+    default:
+      return false;
+  }
+}
+
 // One received byte through the command parser (the state list above).
 void parseByte(char c) {
   switch (parseState) {
@@ -2502,8 +2532,9 @@ void parseByte(char c) {
                                 parseState = 25; }
           else                 parseState = 0;
 
-        } else if (match) {
-          // Normal addressed / broadcast commands
+        } else if (match && !(idWildcard && broadcastRefused(c))) {
+          // Normal addressed / broadcast commands.  A refused broadcast
+          // (broadcastRefused) skips this and is dropped in the else below.
           switch (c) {
             case '-': parseState = 4; break;
             case '+': bufClear(numBuf, numLen); parseState = 12; break;
