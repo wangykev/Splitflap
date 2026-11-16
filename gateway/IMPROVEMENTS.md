@@ -447,6 +447,74 @@ dashboard and `restore.cpp` should be checked for whether they already home afte
 **Effort:** a few lines. Worth folding into the next firmware change (for example #4, which
 rewrites the position handling anyway and must keep this right).
 
+### 8. Idle sleep between bytes (low priority: measure first)
+
+**Where:** `setup()` and the end of `loop()` (`src/SplitFlapUniversalFirmware.cpp:2971`).
+Nothing in the module firmware or the bootloader uses sleep today: there's no `SLPCTRL`,
+`<avr/sleep.h>` or `sleep_cpu()` anywhere.
+
+**Today:** `loop()` spins at full speed forever, even when the bus is quiet and the reel is
+still. The CPU draws its full active current at 10 MHz the whole time. The motor is already
+handled: `releaseMotor()` (`:1738`) turns the coils off on every exit path. Coil current is
+where most of the power goes, so this item is only about the few mA the CPU itself draws.
+
+**What I'd like:** put the CPU into **Idle** sleep when `loop()` finds nothing to do. Idle
+stops only the CPU clock. The USART, TCD0 (`millis()`) and a future TCB0 step timer (#4) keep
+running, and any interrupt wakes the CPU. It costs nothing in responsiveness:
+
+- A received byte wakes it through the USART RX interrupt (on v4, the SoftwareSerial
+  pin-change interrupt).
+- Everything time-based in `loop()` uses `millis()`: the deferred reply slot, the advertisement
+  heartbeat, the 50 ms idle-terminator timeout and `busQuiet()`. The TCD0 overflow interrupt
+  wakes the CPU every 816 µs, so all of these still run on time, to within less than a
+  millisecond.
+- The watchdog stays happy: `loop()` (and its `wdt_reset()`) runs at least once per wakeup.
+
+```cpp
+#include <avr/sleep.h>
+
+// setup()
+set_sleep_mode(SLEEP_MODE_IDLE);
+
+// end of loop(), once the RX for(;;) has drained the ring
+cli();
+if (!rs485.available() /* && the reel is not moving (needed once #4 lands) */) {
+  sleep_enable();
+  sei();          // AVR runs one more instruction before taking a pending interrupt,
+  sleep_cpu();    // so a byte that arrived after the check still wakes this sleep
+  sleep_disable();
+} else {
+  sei();
+}
+```
+
+The `cli` → check → `sei; sleep` order closes the usual race (a byte arriving between the check
+and `sleep`). Here the race would only cost one `millis()` tick, but there's no reason to keep it.
+
+**Don't use Standby or Power-down.** Standby stops TCD0 unless it's marked `RUNSTDBY`, so
+`millis()`, `delay()` and every timeout break. Power-down can't receive bus bytes at all.
+
+**Watch out for:**
+- **Measure before doing this.** Read the module's 5 V current with the reel stopped, before and
+  after. My guess is that Idle roughly halves a few mA per module, so around 0.1–0.2 A across
+  45 modules. Check the ATtiny1616 datasheet's Electrical Characteristics for the real figures.
+  If the saving doesn't matter for the PSU or heat, skip this item.
+- **Blocking paths don't sleep.** `delay()` in `advance()`, the EEPROM writes and the dump
+  replies all busy-wait, so they don't benefit. That's fine: they're short or the motor is on.
+- **#4 changes the "nothing to do" test.** With timer-driven motion, `loop()` must not sleep
+  in a way that hides a finished move. Arrival bookkeeping like `saveState()` has to run after
+  the wakeup. The step ISR wakes the CPU every step anyway, so the only rule is to check
+  "arrived?" before sleeping.
+- **The bootloader** polls the USART with interrupts off, so it can't use sleep. It isn't
+  running long enough to matter.
+
+**Test (bench, one module):** current on the 5 V rail with the reel stopped, before and after.
+Then run the usual checks: display frames, `m*v`/`m*A` reply slots (check `bcastLate` in the
+`m<id>Q` reply doesn't rise), a checksummed restore, an advertisement from an unprovisioned board,
+and a command sent without a terminator (exercises the 50 ms idle timeout).
+
+**Effort:** about ten lines plus a current measurement.
+
 ---
 
 ## Whole bus (module firmware, bootloader, gateway, tools)
@@ -529,6 +597,10 @@ gateway's broadcast window, and the module's 200 ms parser timeout matches the g
 
 #### Module firmware (`SplitFlapUniversalFirmware/src/SplitFlapUniversalFirmware.cpp`)
 
+The 115200 values in this table and the gateway's are hand-picked. "Derive every bus timeout
+from `BUS_BAUD`" below replaces them with formulas that give the same numbers at 115200 and
+today's numbers at 9600.
+
 | Line | Today | Change |
 |---|---|---|
 | 2278 | `rs485.begin(9600)` | `rs485.begin(BUS_BAUD)`, with `-DBUS_BAUD=115200` in `platformio.ini`. |
@@ -569,7 +641,8 @@ should be a few `millis()` ticks wide.
 
 Better still, compute them in the source from `BUS_BAUD` and the worst-case frame lengths the
 `static_assert`s already know. Add a `static_assert(slot − frame ≥ CSMA_LISTEN_MS + 2)` so a
-future change can't make on-time replies late.
+future change can't make on-time replies late. The next section does exactly that, for these
+and every other byte-time constant.
 
 **Clock drift between modules:** each module's `millis()` can be ±1–2% off (the oscillator
 correction applies only to the baud). Over a 3.5 s `m*A` train, two neighbours can drift up to
@@ -578,6 +651,77 @@ sense makes the later one wait. But replies may arrive **out of ID order**, and 
 window has to allow for it. This was already true at 9600 and was hidden by the 100/700 ms
 slots and the v4 `millis()` lag. The v4 lag (~15% slow) is gone on v5, so the gateway's "+20%
 for drift" can become ~+5%. Keep a fixed tail.
+
+#### Derive every bus timeout from `BUS_BAUD`, in one header both sides include
+
+The tables above hand-pick a 115200 value for each byte-time constant. Better: write each one
+**as a number of bytes on the wire**, so the next baud change (or going back to 9600 to debug)
+needs no retuning. One rule covers them all:
+
+**timeout = max(floor, N bytes × byte time)**
+
+The floor isn't optional. At 115200 a byte is 87 µs, while `millis()` moves in ~1 ms jumps, so
+"4 bytes of silence" (0.35 ms) can't even be measured. And not every gap on the wire comes from
+the baud rate: a module building an `A` reply, or the gateway between FreeRTOS tasks, can stall
+for a millisecond or more in the middle of a frame at any speed. The floor is the physical part
+of the timeout and the byte count is the baud part.
+
+```cpp
+// bus_timing.h: the only place the bus speed lives.
+#ifndef BUS_BAUD
+#define BUS_BAUD 9600UL                       // platformio.ini / build.py pass -DBUS_BAUD
+#endif
+
+#ifdef __cplusplus                            // the bootloader is C and only needs BUS_BAUD
+constexpr uint32_t BUS_BYTE_US = (10UL * 1000000UL + BUS_BAUD - 1) / BUS_BAUD;  // 8N1 = 10 bits
+
+constexpr unsigned long busBytesMs(uint32_t n) { return (n * BUS_BYTE_US + 999) / 1000; }
+constexpr unsigned long busMs(uint32_t n, unsigned long floorMs) {   // max(floor, n bytes)
+  return busBytesMs(n) > floorMs ? busBytesMs(n) : floorMs;
+}
+#endif
+```
+
+Pick each N so that **9600 gives back today's value**. Then the refactor is a no-op you can
+build, bench-test and commit on its own, before the baud changes at all:
+
+| Constant (module, today's line) | N bytes | Floor | 9600 | 115200 |
+|---|---|---|---|---|
+| `RX_RESYNC_GAP_MS` (`:1133`) | 4 | 3 ms | 5 | 3 |
+| `CSMA_LISTEN_MS` (`:603`) | 19 | 5 ms | 20 | 5 |
+| Idle → synthetic `\n` (`loop()`, `:3056`, `> 50`) | 48 | 10 ms | 51 | 10 |
+| Catch-all parser reset (`loop()`, `:3099`, `> 200`) | 192 | 50 ms | 201 | 50 |
+| `REPLY_LEADIN_MS` (`:596`) | `CSMA_LISTEN_MS` + 10 ms turnaround | | 30 | 15 |
+| `REPLY_SLOT_MS` / `REPLY_ALL_SLOT_MS` (`:594–595`) | worst-case `v` / `A` reply bytes + `CSMA_LISTEN_MS` + margin | | ≈ 100 / 700 | ≈ 15 / 80 |
+
+The slots use the same worst-case reply lengths the `workBuf` `static_assert`s already know.
+Keep the existing check alongside them:
+`static_assert(REPLY_SLOT_MS - busBytesMs(V_REPLY_MAX_BYTES) >= CSMA_LISTEN_MS + 2, …)`, so an
+on-time reply can never be held back by carrier sense, whatever the baud.
+
+**Stay fixed (don't derive):** `txBegin`'s `delayMicroseconds(200)` (`:1312`) and the
+`delay(20)`/`delay(50)` before the `mXack` and calibrate replies (gateway turnaround), the
+watchdog, advertisement timing, the boot stagger, and all EEPROM and motor timing. These are
+the "physical constants" from the distinction above.
+
+**Share the header with the gateway.** The pairs are why this matters. `BUS_GAP_LONG_MS 260`
+exists because it's "over the module's 200 ms resync" (`common.h:220`). If the module derives
+its timeouts and the gateway keeps fixed ones, a baud change breaks the pair without any error.
+So:
+
+- Put `bus_timing.h` somewhere neutral in this repo (for example `gateway/shared/`), and add
+  `-I` for it in the module's `platformio.ini`, the gateway's `platformio.ini` and
+  `bootloader/build.py`. The module's timeout constants move into it, so the gateway can see
+  them.
+- Define the gateway's constants **from the module's**, so the relationship is code rather
+  than a comment: `BUS_GAP_LONG_MS = PARSER_RESET_MS + 60` (261 at 9600, 110 at 115200),
+  `TX_BUS_GUARD_MS = busMs(12, 3)`, and `soakBroadcastWindow` built from the same slot
+  expressions.
+- The Python tools can't include a header. Have `tools/busflash.py` and `provision.py` read
+  `#define BUS_BAUD` from it as the default for `--baud`, so there's still only one source.
+- This makes the gateway's runtime baud setting (`cfg.rs485Baud`, Settings → bus) mostly
+  meaningless: its timeouts assume `BUS_BAUD`. Remove the setting, or keep it only for the
+  straggler scan below.
 
 #### Bootloader (`SplitFlapUniversalFirmware/bootloader/`)
 
@@ -654,6 +798,69 @@ the better lever.
 | Companion `backend/tests/test_gateway.py:17` | A fixture with `"baud": 9600`. Cosmetic. |
 | `README.md`, `ARCHITECTURE.md`, `BUS-UPDATE.md` (timing table), `SETUP.md`, `FLASHING.md`, `openapi.yaml` | Every "9600" and every derived timing ("~0.75 s dump", "~40 s update", "100 ms slot"). |
 
+#### Keeping every module on the same baud
+
+A module on the wrong baud is worse than missing. It's deaf to the gateway, and a 9600 receiver
+sampling 115200 traffic decodes **arbitrary bytes**, so it can act on garbage that happens to
+look like a plain frame (checksums, #5 and #7, protect the frames that matter). The gateway
+can't ask a module what baud it's on, because it only hears modules at its own rate.
+
+**Rejected: storing the baud in EEPROM** and having modules report it.
+- **It can't detect a mismatch.** Every module that manages to report its baud is already on
+  the gateway's.
+- **Switching the fleet is fragile.** A module that misses the one "switch to X" broadcast goes
+  deaf. Making that safe needs a two-phase switch: switch in RAM only, revert if no valid frame
+  arrives within a few seconds, write EEPROM only on a commit. The gateway would also need a
+  heartbeat so a quiet bus doesn't trigger the revert.
+- **The bootloader can't follow it.** It's the recovery path and must stay at its compiled-in
+  rate: a bad EEPROM value would otherwise leave a module recoverable only over UPDI. The app
+  and bootloader would then sit on different rates, and every bus update would switch the
+  gateway's rate partway through.
+
+Instead, keep the baud compiled in (one `BUS_BAUD`) and add three checks:
+
+1. **Record the baud in the image.** `bootloader/merge.py` already writes the board tag at
+   `0x3FFC` and leaves `0x3FFD` reserved (`0xFF`). Write a baud code there from `BUS_BAUD`
+   (for example `1` = 9600, `2` = 115200; `0xFF` = an older image, so treat it as 9600). The
+   image CRC already covers `0x3FFD`, so the code can't be changed in transit. Then:
+   - the gateway's bus update (`modfw.cpp`, next to the board-tag check `modfw.h:38–39` describes)
+     **refuses an image whose baud code doesn't match its own**, with a clear error;
+   - `tools/busflash.py` does the same check.
+
+   A firmware update is the only way a module's baud can change, so this checks every change at
+   the one place it can happen.
+2. **Report it in `m<id>Q`.** Append the baud after `blVersion`. Old gateways ignore it: the
+   parser (`modules.cpp:2022`) splits at most 9 fields, and the extra text ends up after the
+   last one, where `atoi` stops at the `:`. To show it, extend the parser (`qf[9]` → `qf[11]`,
+   and `qb[48]` → `qb[64]`, since the line is already close to 48 characters) and put it on the
+   dashboard. Mostly a diagnostic: it confirms what you already know from hearing the reply.
+3. **Straggler scan on the gateway.** Add a maintenance-only action (`busHold`, dashboard button)
+   that, for each other known rate (9600, 115200):
+   - switches the UART to that rate;
+   - broadcasts `m*v` and listens. The window is **that rate's** roll call, since a straggler
+     uses its own compiled-in slots: about 4.5 s for IDs 0–44 at 9600;
+   - switches back.
+
+   Any reply is a module on the wrong baud. The dashboard says "module 17 answers at 9600"
+   instead of just "module 17 missing". Its `Q` reply's `blVersion` says how to fix it:
+   - **A 115200 bootloader (`BL_VERSION` 3) under a 9600 app.** It was bus-updated with an
+     upstream image. Send a checksummed `m17U` at 9600 and bus-update it at 115200 with the
+     right image. The gateway can do this itself.
+   - **A 9600 bootloader.** It was UPDI-flashed with an upstream image. Only UPDI fixes it.
+     Report it.
+
+   Bench-check what the modules on the main rate do while the gateway transmits at 9600. They
+   should only see `0x00` bytes with framing errors, since every low stretch of a 9600 signal
+   (≥ 104 µs) outlasts a whole 115200 frame (87 µs), so `m` and `~` can't appear. Confirm that
+   nothing moves and that `crcErrors` doesn't change.
+
+**Later, if a runtime-changeable baud is ever wanted:** use the tinyAVR USART's hardware
+auto-baud (`RXMODE = GENAUTO`) rather than EEPROM. The gateway sends a break plus a `0x55` sync
+byte (`uart_write_bytes_with_break` on the ESP32), and the USART times it and sets its own
+`BAUD` register. Nothing is stored, so nothing can get out of step. Read the datasheet's
+auto-baud section first: how it behaves between frames and how accurate it is at 115200 are
+unchecked.
+
 #### Rollout order (this is what keeps it cheap)
 
 1. **Decide before the 45-module UPDI flash.** Changing the bootloader later means visiting all
@@ -688,9 +895,9 @@ the better lever.
 
   Re-apply this change on every upstream merge, and always build images from this repo.
 - **There's no way to talk to a module at an unknown speed.** Keep the baud in one place
-  (`BUS_BAUD`) for the firmware and bootloader builds, and print it in the build output.
-  Consider putting the baud in the image (next to the board tag at 0x3FFC; 0x3FFD is free) and
-  having the gateway refuse to send an image whose baud doesn't match its own.
+  (`BUS_BAUD`, in `bus_timing.h`) for the firmware, bootloader and gateway builds, and print it
+  in the build output. See "Keeping every module on the same baud": the baud code in the image,
+  the gateway refusing a mismatched image, and the straggler scan.
 - **The gateway setting is persisted (NVS) and the module setting is compiled in.** Change the
   gateway's from the dashboard. If they ever disagree, the wall goes silent but nothing is
   damaged: set the gateway back.
